@@ -13,6 +13,10 @@ env/
 .env.local
 .env.*.local
 
+# Gmail OAuth (credenciais sensíveis)
+credentials.json
+gmail_tokens.json
+
 # Build
 .next/
 out/

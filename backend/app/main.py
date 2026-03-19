@@ -6,14 +6,17 @@ Solução para automatização de leitura e classificação de emails corporativ
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, File, UploadFile, Form, HTTPException
+from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from typing import Optional
-import io
+from urllib.parse import quote
+import os
 
 from app.services.processor import process_email
 from app.services.text_extractor import extract_text_from_file
+from app.services import gmail_service
 
 app = FastAPI(
     title="Email Classifier API",
@@ -99,3 +102,93 @@ async def classify_email(
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro ao processar email: {str(e)}")
+
+
+# ============ Gmail OAuth ============
+
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
+
+
+@app.get("/api/auth/gmail/url")
+async def gmail_auth_url():
+    """Retorna a URL para o usuário autorizar acesso ao Gmail."""
+    try:
+        auth_url, _ = gmail_service.get_auth_url()
+        return {"auth_url": auth_url}
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+
+@app.get("/api/auth/gmail/callback")
+async def gmail_callback(code: Optional[str] = Query(None), error: Optional[str] = Query(None)):
+    """Callback OAuth: troca o código por tokens e redireciona para o frontend."""
+    if error:
+        return RedirectResponse(url=f"{FRONTEND_URL}?gmail_error={quote(error)}")
+    if not code:
+        return RedirectResponse(url=f"{FRONTEND_URL}?gmail_error=missing_code")
+    try:
+        user_info = gmail_service.exchange_code_for_tokens(code)
+        email = user_info.get("email", "")
+        return RedirectResponse(url=f"{FRONTEND_URL}?gmail_success=1&email={quote(email)}")
+    except Exception as e:
+        return RedirectResponse(url=f"{FRONTEND_URL}?gmail_error={quote(str(e))}")
+
+
+@app.get("/api/auth/gmail/status")
+async def gmail_status():
+    """Verifica se o usuário está autenticado no Gmail."""
+    if not gmail_service.is_authenticated():
+        return {"authenticated": False}
+    user = gmail_service.get_user_info()
+    return {
+        "authenticated": True,
+        "email": user.get("email") if user else None,
+        "name": user.get("name") if user else None,
+    }
+
+
+@app.post("/api/auth/gmail/revoke")
+async def gmail_revoke():
+    """Desconecta a conta Gmail."""
+    gmail_service.revoke_credentials()
+    return {"success": True}
+
+
+@app.get("/api/emails")
+async def list_emails(
+    max_results: int = Query(20, ge=1, le=50),
+    query: str = Query(""),
+):
+    """Lista emails da caixa de entrada do Gmail."""
+    try:
+        messages = gmail_service.list_messages(max_results=max_results, query=query or None)
+        return {"emails": messages}
+    except PermissionError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/emails/{message_id}")
+async def get_email(message_id: str):
+    """Obtém o conteúdo completo de um email e opcionalmente classifica."""
+    try:
+        content = gmail_service.get_message_content(message_id)
+        return {"content": content}
+    except PermissionError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/emails/{message_id}/classify")
+async def classify_gmail_email(message_id: str):
+    """Obtém o email do Gmail e classifica com IA."""
+    try:
+        content = gmail_service.get_message_content(message_id)
+        result = process_email(content)
+        return result
+    except PermissionError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

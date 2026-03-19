@@ -4,6 +4,7 @@ Solução digital para automatizar a leitura e classificação de emails corpora
 
 ## Funcionalidades
 
+- **Leitura direta do Gmail**: Conecte sua conta Google e leia emails automaticamente (OAuth 2.0)
 - **Classificação automática**: Emails categorizados em **Produtivo** (requer ação) ou **Improdutivo** (não requer ação)
 - **Sugestão de respostas**: Respostas automáticas adequadas à categoria identificada
 - **Múltiplos formatos**: Upload de arquivos .txt ou .pdf, ou inserção direta de texto
@@ -55,12 +56,17 @@ O frontend estará em `http://localhost:3000`
 **Variáveis de ambiente**:
 - `NEXT_PUBLIC_API_URL`: URL do backend (padrão: `http://localhost:8000`)
 
-### 3. Testar
+### 3. Gmail (opcional)
+
+Para leitura automática de emails do Gmail, siga o guia [GMAIL_SETUP.md](./GMAIL_SETUP.md) para configurar OAuth no Google Cloud Console. Coloque o arquivo `credentials.json` na pasta `backend/`.
+
+### 4. Testar
 
 1. Acesse http://localhost:3000
-2. Faça upload de um arquivo da pasta `sample-emails/` ou cole um texto
-3. Clique em "Classificar e sugerir resposta"
-4. Veja a categoria e a resposta sugerida
+2. **Gmail**: Clique em "Conectar Gmail" para autenticar e listar emails, ou
+3. Faça upload de um arquivo da pasta `sample-emails/` ou cole um texto
+4. Clique em "Classificar e sugerir resposta"
+5. Veja a categoria e a resposta sugerida
 
 ## Deploy na nuvem
 
@@ -105,13 +111,27 @@ backend/
 │   ├── main.py              # API FastAPI
 │   └── services/
 │       ├── processor.py     # Classificação e geração de resposta
+│       ├── gmail_service.py # Integração Gmail OAuth
 │       ├── nlp_preprocessor.py
 │       └── text_extractor.py
+├── credentials.json         # OAuth (veja GMAIL_SETUP.md)
 ├── requirements.txt
 └── .env.example
 ```
 
 ## API
+
+### Gmail OAuth
+
+| Método | Endpoint | Descrição |
+|--------|----------|-----------|
+| GET | `/api/auth/gmail/url` | Retorna URL para autorizar Gmail |
+| GET | `/api/auth/gmail/callback` | Callback OAuth (redirect) |
+| GET | `/api/auth/gmail/status` | Verifica se está autenticado |
+| POST | `/api/auth/gmail/revoke` | Desconecta conta |
+| GET | `/api/emails` | Lista emails da caixa de entrada |
+| GET | `/api/emails/{id}` | Obtém conteúdo do email |
+| POST | `/api/emails/{id}/classify` | Classifica email do Gmail |
 
 ### POST /api/classify
 
