@@ -1,0 +1,12 @@
+# Configuração para deploy no Render.com (plano gratuito)
+# Coloque na raiz do repositório para deploy automático
+services:
+  - type: web
+    name: email-classifier-api
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: HF_TOKEN
+        sync: false
