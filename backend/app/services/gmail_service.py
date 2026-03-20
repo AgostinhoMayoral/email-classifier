@@ -389,6 +389,25 @@ def _extract_email_from_header(header_value: str) -> str:
     return header_value.strip().lower()
 
 
+def extract_display_name_from_header(header_value: str) -> str:
+    """
+    Extrai o nome de exibição de string como 'João Silva <joao@email.com>'.
+    Retorna o nome para personalização (saudação Prezado João, etc).
+    """
+    if not header_value or not header_value.strip():
+        return ""
+    s = header_value.strip()
+    # Formato: "Nome <email>" -> extrair Nome
+    if " <" in s and ">" in s:
+        name_part = s.split("<")[0].strip().strip('"\'')
+        if name_part and "@" not in name_part:
+            return name_part
+    # Apenas email, sem nome
+    if "@" in s:
+        return ""
+    return s
+
+
 def send_email(
     to_email: str,
     subject: str,

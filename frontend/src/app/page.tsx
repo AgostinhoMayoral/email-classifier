@@ -60,6 +60,7 @@ export default function Home() {
   const [dragActive, setDragActive] = useState(false);
   const [toEmail, setToEmail] = useState("");
   const [subject, setSubject] = useState("");
+  const [recipientName, setRecipientName] = useState("");
   const [sendSingleLoading, setSendSingleLoading] = useState(false);
   const [sendSingleSuccess, setSendSingleSuccess] = useState(false);
 
@@ -113,6 +114,7 @@ export default function Home() {
     setResult(null);
     setToEmail("");
     setSubject("");
+    setRecipientName("");
     setSendSingleSuccess(false);
     setError(null);
     setResultModalOpen(false);
@@ -383,6 +385,7 @@ export default function Home() {
       const formData = new FormData();
       if (file) formData.append("file", file);
       if (text.trim()) formData.append("text", text.trim());
+      if (recipientName.trim()) formData.append("recipient_name", recipientName.trim());
       const response = await fetch(`${API_URL}/api/classify`, { method: "POST", body: formData });
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
@@ -888,7 +891,9 @@ export default function Home() {
 
                     <div className="space-y-2">
                       <label htmlFor="text-input" className="block text-sm font-medium text-slate-400">Ou cole o texto</label>
-                      <textarea
+                      <div className="flex gap-4 flex-wrap">
+                        <div className="flex-1 min-w-[200px]">
+                          <textarea
                         id="text-input"
                         value={text}
                         onChange={(e) => { setText(e.target.value); if (file) setFile(null); }}
@@ -896,6 +901,20 @@ export default function Home() {
                         rows={6}
                         className="w-full px-4 py-3 rounded-xl bg-slate-800/50 border border-slate-600 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500 resize-none transition-all"
                       />
+                        </div>
+                        <div className="w-full sm:w-48">
+                          <label htmlFor="recipient-name" className="block text-sm font-medium text-slate-400 mb-1">Nome do destinatário (opcional)</label>
+                          <input
+                            id="recipient-name"
+                            type="text"
+                            value={recipientName}
+                            onChange={(e) => setRecipientName(e.target.value)}
+                            placeholder="Ex: João Silva"
+                            className="w-full px-4 py-3 rounded-xl bg-slate-800/50 border border-slate-600 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500"
+                          />
+                          <p className="text-xs text-slate-500 mt-1">Para personalizar a saudação</p>
+                        </div>
+                      </div>
                     </div>
                   </div>
 

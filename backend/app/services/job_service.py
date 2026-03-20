@@ -7,6 +7,7 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
+import os
 from app.services import gmail_service
 from app.services.processor import process_email
 from app.repositories import email_repository
@@ -86,7 +87,14 @@ def run_daily_job(
         if not record.classification:
             try:
                 content = gmail_service.get_message_content(gmail_id)
-                result = process_email(content)
+                recipient = gmail_service.extract_display_name_from_header(sender)
+                user_info = gmail_service.get_user_info()
+                sender_name = (user_info.get("name") or "").strip() if user_info else os.getenv("USER_NAME", "").strip() or None
+                result = process_email(
+                    content,
+                    recipient_name=recipient or None,
+                    sender_name=sender_name or None,
+                )
                 email_repository.save_classification(
                     db,
                     record.id,

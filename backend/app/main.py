@@ -111,7 +111,9 @@ async def health():
 @app.post("/api/classify", response_model=ClassificationResult)
 async def classify_email(
     file: Optional[UploadFile] = File(None),
-    text: Optional[str] = Form(None)
+    text: Optional[str] = Form(None),
+    recipient_name: Optional[str] = Form(None),
+    sender_name: Optional[str] = Form(None),
 ):
     """Classifica email por arquivo ou texto."""
     email_content = None
@@ -131,7 +133,20 @@ async def classify_email(
         raise HTTPException(status_code=400, detail="Envie um arquivo (.txt ou .pdf) ou insira o texto do email")
 
     try:
-        result = process_email(email_content)
+        # Se Gmail conectado e sender_name não informado, pegar do perfil
+        sender = (sender_name or "").strip()
+        if not sender and gmail_service.is_authenticated():
+            user_info = gmail_service.get_user_info()
+            if user_info and user_info.get("name"):
+                sender = user_info.get("name", "").strip()
+        if not sender:
+            sender = os.getenv("USER_NAME", "").strip() or None
+
+        result = process_email(
+            email_content,
+            recipient_name=(recipient_name or "").strip() or None,
+            sender_name=sender or None,
+        )
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro ao processar email: {str(e)}")
@@ -391,7 +406,14 @@ async def send_batch(
             try:
                 msg_data = gmail_service.get_message_metadata(gmail_id)
                 content = gmail_service.get_message_content(gmail_id)
-                classification_result = process_email(content)
+                recipient = gmail_service.extract_display_name_from_header(msg_data.get("from", ""))
+                user_info = gmail_service.get_user_info()
+                sender = (user_info.get("name") or "").strip() if user_info else os.getenv("USER_NAME", "").strip() or None
+                classification_result = process_email(
+                    content,
+                    recipient_name=recipient or None,
+                    sender_name=sender or None,
+                )
                 received_at = None
                 if msg_data.get("internalDate"):
                     received_at = datetime.utcfromtimestamp(int(msg_data["internalDate"]) / 1000)
@@ -468,7 +490,18 @@ async def classify_gmail_email(
 
         msg_data = gmail_service.get_message_metadata(message_id)
         content = gmail_service.get_message_content(message_id)
-        result = process_email(content)
+
+        recipient = gmail_service.extract_display_name_from_header(msg_data.get("from", ""))
+        user_info = gmail_service.get_user_info()
+        sender = (user_info.get("name") or "").strip() if user_info else ""
+        if not sender:
+            sender = os.getenv("USER_NAME", "").strip() or None
+
+        result = process_email(
+            content,
+            recipient_name=recipient or None,
+            sender_name=sender or None,
+        )
 
         received_at = None
         if msg_data.get("internalDate"):

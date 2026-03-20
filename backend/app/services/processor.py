@@ -134,18 +134,40 @@ def _classify_rule_based(text: str, preprocessed: str) -> tuple[str, float]:
         return "Produtivo", 0.65
 
 
-def _generate_response_with_hf(email_text: str, category: str) -> str | None:
+def _generate_response_with_hf(
+    email_text: str,
+    category: str,
+    recipient_name: str | None = None,
+    sender_name: str | None = None,
+) -> str | None:
     """
     Gera resposta sugerida usando Hugging Face Chat API.
-    Prompt flexível: a IA responde ao conteúdo real (comidas, pedidos, etc).
+    Usa recipient_name na saudação (Prezado João) e sender_name na assinatura.
     """
     if not HF_TOKEN:
         logger.warning("HF_TOKEN não configurado - usando template")
         return None
 
+    name_instructions = []
+    if recipient_name and recipient_name.strip():
+        name_instructions.append(f"- O destinatário se chama {recipient_name.strip()}. Use o nome dele na saudação (ex: Prezado(a) {recipient_name.strip()}, ou Prezado João).")
+    else:
+        name_instructions.append("- Se o nome do destinatário aparecer na mensagem, use-o na saudação. Caso contrário, use 'Prezado(a)'.")
+
+    if sender_name and sender_name.strip():
+        name_instructions.append(f"- Assine a mensagem com o nome {sender_name.strip()} (ex: Atenciosamente, {sender_name.strip()}).")
+    else:
+        name_instructions.append("- Assine com 'Atenciosamente' ou similar, sem deixar [Seu Nome] ou placeholders.")
+
+    name_block = "\n".join(name_instructions)
+
     prompt = f"""Mensagem recebida: "{email_text[:500]}"
 
-Responda de forma cordial e profissional em português, considerando o assunto da mensagem. Seja ESPECÍFICO ao conteúdo (não use resposta genérica). Máximo 4 frases. Apenas a resposta, sem prefixos."""
+Responda de forma cordial e profissional em português. Seja ESPECÍFICO ao conteúdo. Máximo 4 frases. Apenas a resposta completa, sem prefixos.
+
+IMPORTANTE - Personalização:
+{name_block}
+NUNCA use [Nome], [Seu Nome] ou placeholders. Use sempre os nomes reais."""
 
     result = _chat_completion(prompt, max_tokens=250)
     if result and len(result) > 15:
@@ -153,27 +175,37 @@ Responda de forma cordial e profissional em português, considerando o assunto d
     return None
 
 
-def _generate_response_template(category: str, email_preview: str) -> str:
-    """
-    Gera resposta usando templates quando API não está disponível.
-    """
+def _generate_response_template(
+    category: str,
+    email_preview: str,
+    recipient_name: str | None = None,
+    sender_name: str | None = None,
+) -> str:
+    """Gera resposta usando templates quando API não está disponível."""
+    saudacao = f"Prezado(a) {recipient_name},\n\n" if (recipient_name and recipient_name.strip()) else "Prezado(a),\n\n"
+    assinatura = f"Atenciosamente,\n{sender_name}" if (sender_name and sender_name.strip()) else "Atenciosamente,\nEquipe de Suporte"
+
     if category == "Produtivo":
         return (
-            "Prezado(a),\n\n"
+            f"{saudacao}"
             "Agradecemos o contato. Sua solicitação foi recebida e está sendo analisada por nossa equipe. "
             "Retornaremos em breve com as informações solicitadas.\n\n"
             "Em caso de urgência, por favor entre em contato através dos nossos canais oficiais.\n\n"
-            "Atenciosamente,\nEquipe de Suporte"
+            f"{assinatura}"
         )
     else:
         return (
-            "Prezado(a),\n\n"
+            f"{saudacao}"
             "Agradecemos sua mensagem e os votos. Desejamos a você e à sua equipe um excelente ano!\n\n"
-            "Atenciosamente,\nEquipe"
+            f"{assinatura}"
         )
 
 
-def process_email(email_text: str) -> Dict[str, Any]:
+def process_email(
+    email_text: str,
+    recipient_name: str | None = None,
+    sender_name: str | None = None,
+) -> Dict[str, Any]:
     """
     Processa o email completo: pré-processamento, classificação e geração de resposta.
     
@@ -199,12 +231,20 @@ def process_email(email_text: str) -> Dict[str, Any]:
     if category not in ["Produtivo", "Improdutivo"]:
         category = "Produtivo" if "produtivo" in str(category).lower() else "Improdutivo"
 
-    # Geração de resposta - sempre tenta IA primeiro
-    suggested_response = _generate_response_with_hf(email_text, category)
+    # Geração de resposta - sempre tenta IA primeiro (com nomes para personalização)
+    suggested_response = _generate_response_with_hf(
+        email_text, category,
+        recipient_name=recipient_name,
+        sender_name=sender_name,
+    )
     ai_used = bool(suggested_response)
     if not suggested_response:
         logger.warning("Usando template de fallback (IA indisponível ou falhou)")
-        suggested_response = _generate_response_template(category, email_text[:100])
+        suggested_response = _generate_response_template(
+            category, email_text[:100],
+            recipient_name=recipient_name,
+            sender_name=sender_name,
+        )
 
     return {
         "category": category,
