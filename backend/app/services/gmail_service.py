@@ -201,10 +201,30 @@ def get_user_info() -> Optional[dict]:
         return None
 
 
+# Máximo de mensagens que buscamos do Gmail (evita loops longos em caixas enormes)
+MAX_MESSAGES_FETCH = 5000
+
+
 def list_messages(max_results: int = 20, query: str = "") -> list[dict]:
     """
-    Lista mensagens da caixa de entrada.
-    Retorna lista com id, threadId, snippet, subject, from, date.
+    Lista mensagens da caixa de entrada (compatibilidade).
+    Para paginação completa, use list_messages_paginated.
+    """
+    msgs, _ = list_messages_paginated(page=1, per_page=max_results, query=query)
+    return msgs
+
+
+def list_messages_paginated(
+    page: int = 1,
+    per_page: int = 50,
+    query: str = "",
+) -> tuple[list[dict], int]:
+    """
+    Lista mensagens do Gmail com paginação real via pageToken.
+    Busca todas as mensagens necessárias (até MAX_MESSAGES_FETCH) e retorna a página solicitada.
+
+    Returns:
+        (messages, total) - lista de mensagens da página e total estimado
     """
     creds = get_credentials()
     if not creds:
@@ -212,39 +232,71 @@ def list_messages(max_results: int = 20, query: str = "") -> list[dict]:
 
     service = build("gmail", "v1", credentials=creds)
 
-    results = (
-        service.users()
-        .messages()
-        .list(userId="me", maxResults=max_results, q=query or None)
-        .execute()
-    )
+    # 1. Coletar IDs em lotes de 500 até ter o suficiente para a página solicitada
+    all_ids: list[dict] = []
+    next_token: Optional[str] = None
+    total_estimate = 0
 
-    messages = results.get("messages", [])
-    result = []
+    needed_count = page * per_page
+    while len(all_ids) < needed_count and len(all_ids) < MAX_MESSAGES_FETCH:
+        list_params: dict = {
+            "userId": "me",
+            "maxResults": 500,
+            "q": query or None,
+        }
+        if next_token:
+            list_params["pageToken"] = next_token
 
-    for msg_ref in messages:
-        msg = (
+        results = (
             service.users()
             .messages()
-            .get(userId="me", id=msg_ref["id"], format="metadata")
+            .list(**{k: v for k, v in list_params.items() if v is not None})
             .execute()
         )
-        headers = {h["name"].lower(): h["value"] for h in msg.get("payload", {}).get("headers", [])}
-        internal_date = msg.get("internalDate")
-        result.append(
-            {
-                "id": msg["id"],
-                "threadId": msg.get("threadId"),
-                "snippet": msg.get("snippet", ""),
-                "subject": headers.get("subject", "(sem assunto)"),
-                "from": headers.get("from", ""),
-                "date": headers.get("date", ""),
-                "internalDate": int(internal_date) if internal_date else None,
-                "labelIds": msg.get("labelIds", []),
-            }
-        )
 
-    return result
+        batch = results.get("messages", [])
+        all_ids.extend(batch)
+        total_estimate = results.get("resultSizeEstimate", len(all_ids))
+
+        next_token = results.get("nextPageToken")
+        if not next_token or not batch:
+            break
+
+    total = max(total_estimate, len(all_ids))
+
+    # 2. Pegar o slice de IDs para a página atual
+    start = (page - 1) * per_page
+    end = start + per_page
+    ids_for_page = [m["id"] for m in all_ids[start:end]]
+
+    # 3. Buscar metadados apenas dos emails da página
+    result = []
+    for msg_id in ids_for_page:
+        try:
+            msg = (
+                service.users()
+                .messages()
+                .get(userId="me", id=msg_id, format="metadata")
+                .execute()
+            )
+            headers = {h["name"].lower(): h["value"] for h in msg.get("payload", {}).get("headers", [])}
+            internal_date = msg.get("internalDate")
+            result.append(
+                {
+                    "id": msg["id"],
+                    "threadId": msg.get("threadId"),
+                    "snippet": msg.get("snippet", ""),
+                    "subject": headers.get("subject", "(sem assunto)"),
+                    "from": headers.get("from", ""),
+                    "date": headers.get("date", ""),
+                    "internalDate": int(internal_date) if internal_date else None,
+                    "labelIds": msg.get("labelIds", []),
+                }
+            )
+        except Exception as e:
+            logger.warning("Erro ao buscar mensagem %s: %s", msg_id, e)
+
+    return result, total
 
 
 def get_message_metadata(message_id: str) -> dict:

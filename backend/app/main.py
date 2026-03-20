@@ -254,9 +254,12 @@ async def list_emails(
             gmail_query_parts.append(f"before:{dt_adj.strftime('%Y/%m/%d')}")
         gmail_query = " ".join(gmail_query_parts) if gmail_query_parts else ""
 
-        # Buscar mais do Gmail para paginar (Gmail não tem offset nativo)
-        max_fetch = page * per_page
-        messages = gmail_service.list_messages(max_results=min(max_fetch, 100), query=gmail_query or None)
+        # Buscar do Gmail com paginação real (pageToken) - acessa todas as mensagens
+        messages, total = gmail_service.list_messages_paginated(
+            page=page,
+            per_page=per_page,
+            query=gmail_query or None,
+        )
 
         # IDs já enviados (evitar duplicados)
         gmail_ids = [m["id"] for m in messages]
@@ -284,13 +287,8 @@ async def list_emails(
                 m["confidence"] = None
                 m["suggested_response"] = None
 
-        # Paginar
-        total = len(messages)
-        start = (page - 1) * per_page
-        emails_page = messages[start:start + per_page]
-
         return {
-            "emails": emails_page,
+            "emails": messages,
             "pagination": {
                 "page": page,
                 "per_page": per_page,

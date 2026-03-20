@@ -62,7 +62,7 @@ export default function Home() {
   const [classifyLoading, setClassifyLoading] = useState(false);
 
   const [page, setPage] = useState(1);
-  const [perPage] = useState(10);
+  const [perPage, setPerPage] = useState(10);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -609,13 +609,66 @@ export default function Home() {
                             </li>
                           ))}
                         </ul>
-                        {pagination && pagination.total_pages > 1 && (
-                          <div className="flex items-center justify-between px-4 py-3 border-t border-slate-700 bg-slate-800/30">
-                            <span className="text-sm text-slate-400">Página {pagination.page} de {pagination.total_pages} ({pagination.total} emails)</span>
-                            <div className="flex gap-2">
-                              <button type="button" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1} className="px-3 py-1.5 rounded-lg border border-slate-600 hover:bg-slate-700/50 disabled:opacity-50 text-sm">Anterior</button>
-                              <button type="button" onClick={() => setPage((p) => Math.min(pagination.total_pages, p + 1))} disabled={page >= pagination.total_pages} className="px-3 py-1.5 rounded-lg border border-slate-600 hover:bg-slate-700/50 disabled:opacity-50 text-sm">Próxima</button>
+                        {pagination && (
+                          <div className="flex flex-wrap items-center justify-between gap-4 px-4 py-3 border-t border-slate-700 bg-slate-800/30">
+                            <div className="flex items-center gap-4">
+                              <span className="text-sm text-slate-400">
+                                {pagination.total} email{pagination.total !== 1 ? "s" : ""} · Página {pagination.page} de {pagination.total_pages}
+                              </span>
+                              <div className="flex items-center gap-2">
+                                <label htmlFor="per-page" className="text-xs text-slate-500">Por página</label>
+                                <select id="per-page" value={perPage} onChange={(e) => { setPerPage(Number(e.target.value)); setPage(1); }} className="px-2 py-1.5 rounded-lg bg-slate-800/50 border border-slate-600 text-sm text-slate-300 focus:outline-none focus:ring-1 focus:ring-cyan-500/50">
+                                  <option value={10}>10</option>
+                                  <option value={25}>25</option>
+                                  <option value={50}>50</option>
+                                </select>
+                              </div>
                             </div>
+                            <nav className="flex items-center gap-1" aria-label="Navegação de páginas">
+                                <button
+                                  type="button"
+                                  onClick={() => setPage(1)}
+                                  disabled={page <= 1}
+                                  title="Primeira página"
+                                  aria-label="Primeira página"
+                                  className="p-2 rounded-lg border border-slate-600 hover:bg-slate-700/50 hover:border-slate-500 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent transition-colors"
+                                >
+                                  <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" /></svg>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                                  disabled={page <= 1}
+                                  title="Página anterior"
+                                  aria-label="Página anterior"
+                                  className="p-2 rounded-lg border border-slate-600 hover:bg-slate-700/50 hover:border-slate-500 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent transition-colors"
+                                >
+                                  <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+                                </button>
+                                <span className="px-3 py-1.5 text-sm font-medium text-slate-300 min-w-[4rem] text-center">
+                                  {pagination.page} / {pagination.total_pages}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => setPage((p) => Math.min(pagination.total_pages, p + 1))}
+                                  disabled={page >= pagination.total_pages}
+                                  title="Próxima página"
+                                  aria-label="Próxima página"
+                                  className="p-2 rounded-lg border border-slate-600 hover:bg-slate-700/50 hover:border-slate-500 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent transition-colors"
+                                >
+                                  <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setPage(pagination.total_pages)}
+                                  disabled={page >= pagination.total_pages}
+                                  title="Última página"
+                                  aria-label="Última página"
+                                  className="p-2 rounded-lg border border-slate-600 hover:bg-slate-700/50 hover:border-slate-500 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent transition-colors"
+                                >
+                                  <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" /></svg>
+                                </button>
+                              </nav>
                           </div>
                         )}
                       </>
