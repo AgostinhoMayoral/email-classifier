@@ -4,7 +4,15 @@ Serviço de integração com Gmail API via OAuth 2.0.
 
 import os
 import json
+import logging
+
+# Permite que o Google retorne escopos diferentes dos solicitados (ex: menos escopos)
+# sem que oauthlib lance "Scope has changed". Depois verificamos manualmente.
+os.environ.setdefault("OAUTHLIB_RELAX_TOKEN_SCOPE", "1")
+
+logger = logging.getLogger("gmail_service")
 import base64
+import re
 from pathlib import Path
 from typing import Optional
 from google.oauth2.credentials import Credentials
@@ -12,11 +20,12 @@ from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 
-# Escopos necessários para leitura de emails
-# openid é exigido pelo Google quando usamos userinfo.email e userinfo.profile
+# Escopos necessários para leitura e envio de emails
 SCOPES = [
     "openid",
     "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/gmail.send",
+    "https://www.googleapis.com/auth/gmail.compose",
     "https://www.googleapis.com/auth/userinfo.email",
     "https://www.googleapis.com/auth/userinfo.profile",
 ]
@@ -63,6 +72,7 @@ def get_auth_url() -> tuple[str, str]:
         include_granted_scopes="true",
         prompt="consent",
     )
+    logger.info("get_auth_url: scopes solicitados=%s", SCOPES)
     return auth_url, state
 
 
@@ -84,6 +94,18 @@ def exchange_code_for_tokens(code: str) -> dict:
     flow.fetch_token(code=code)
 
     credentials = flow.credentials
+    granted = set(credentials.scopes or [])
+    logger.info("exchange_code_for_tokens: escopos concedidos pelo Google=%s", sorted(granted))
+
+    # Verificar se temos permissão de envio (necessário para send-batch)
+    required_send = "https://www.googleapis.com/auth/gmail.send"
+    if required_send not in granted:
+        logger.warning("gmail.send não concedido. Concedidos: %s", sorted(granted))
+        raise PermissionError(
+            "Permissão de envio não concedida. Adicione os escopos gmail.send e gmail.compose "
+            "na Tela de consentimento OAuth do Google Cloud Console (APIs e Serviços → Tela de consentimento → Escopos). "
+            "Depois apague gmail_tokens.json e conecte novamente."
+        )
 
     # Carregar client_id e client_secret do arquivo (necessário para refresh)
     with open(creds_path) as f:
@@ -103,6 +125,7 @@ def exchange_code_for_tokens(code: str) -> dict:
     }
     with open(TOKENS_PATH, "w") as f:
         json.dump(tokens_data, f, indent=2)
+    logger.info("Tokens salvos com escopos: %s", tokens_data.get("scopes"))
 
     # Obter email do usuário
     service = build("oauth2", "v2", credentials=credentials)
@@ -131,7 +154,9 @@ def get_credentials() -> Optional[Credentials]:
     )
 
     if creds.expired and creds.refresh_token:
+        logger.info("get_credentials: token expirado, renovando. Escopos armazenados=%s", tokens.get("scopes"))
         creds.refresh(Request())
+        logger.info("get_credentials: após refresh, escopos=%s", creds.scopes)
         # Atualizar token no arquivo
         tokens["token"] = creds.token
         with open(TOKENS_PATH, "w") as f:
@@ -143,6 +168,18 @@ def get_credentials() -> Optional[Credentials]:
 def is_authenticated() -> bool:
     """Verifica se há credenciais válidas."""
     return get_credentials() is not None
+
+
+def get_stored_scopes() -> list[str]:
+    """Retorna os escopos armazenados no token (sem carregar/renovar)."""
+    if not TOKENS_PATH.exists():
+        return []
+    try:
+        with open(TOKENS_PATH) as f:
+            tokens = json.load(f)
+        return tokens.get("scopes") or []
+    except Exception:
+        return []
 
 
 def revoke_credentials() -> None:
@@ -193,6 +230,7 @@ def list_messages(max_results: int = 20, query: str = "") -> list[dict]:
             .execute()
         )
         headers = {h["name"].lower(): h["value"] for h in msg.get("payload", {}).get("headers", [])}
+        internal_date = msg.get("internalDate")
         result.append(
             {
                 "id": msg["id"],
@@ -201,11 +239,37 @@ def list_messages(max_results: int = 20, query: str = "") -> list[dict]:
                 "subject": headers.get("subject", "(sem assunto)"),
                 "from": headers.get("from", ""),
                 "date": headers.get("date", ""),
+                "internalDate": int(internal_date) if internal_date else None,
                 "labelIds": msg.get("labelIds", []),
             }
         )
 
     return result
+
+
+def get_message_metadata(message_id: str) -> dict:
+    """Obtém metadados da mensagem (subject, from, date, etc)."""
+    creds = get_credentials()
+    if not creds:
+        raise PermissionError("Não autenticado. Conecte sua conta Gmail primeiro.")
+
+    service = build("gmail", "v1", credentials=creds)
+    msg = (
+        service.users()
+        .messages()
+        .get(userId="me", id=message_id, format="metadata")
+        .execute()
+    )
+    headers = {h["name"].lower(): h["value"] for h in msg.get("payload", {}).get("headers", [])}
+    return {
+        "id": msg["id"],
+        "threadId": msg.get("threadId"),
+        "snippet": msg.get("snippet", ""),
+        "subject": headers.get("subject", "(sem assunto)"),
+        "from": headers.get("from", ""),
+        "date": headers.get("date", ""),
+        "internalDate": int(msg["internalDate"]) if msg.get("internalDate") else None,
+    }
 
 
 def get_message_content(message_id: str) -> str:
@@ -246,3 +310,53 @@ def get_message_content(message_id: str) -> str:
 
     full_text = f"De: {from_addr}\nAssunto: {subject}\nData: {date}\n\n{body}"
     return full_text.strip()
+
+
+def _extract_email_from_header(header_value: str) -> str:
+    """Extrai endereço de email de string como 'Nome <email@domain.com>'."""
+    if not header_value:
+        return ""
+    match = re.search(r"<([^>]+)>", header_value)
+    if match:
+        return match.group(1).strip().lower()
+    return header_value.strip().lower()
+
+
+def send_email(
+    to_email: str,
+    subject: str,
+    body: str,
+    thread_id: Optional[str] = None,
+) -> dict:
+    """
+    Envia um email via Gmail API.
+    Se thread_id for informado, a resposta será adicionada à mesma thread.
+    Retorna a mensagem enviada ou levanta exceção.
+    """
+    creds = get_credentials()
+    if not creds:
+        raise PermissionError("Não autenticado. Conecte sua conta Gmail primeiro.")
+
+    service = build("gmail", "v1", credentials=creds)
+
+    from email.mime.text import MIMEText
+    from email.mime.multipart import MIMEMultipart
+
+    msg = MIMEMultipart("alternative")
+    msg["To"] = to_email
+    msg["Subject"] = subject
+    msg.attach(MIMEText(body, "plain", "utf-8"))
+
+    raw = base64.urlsafe_b64encode(msg.as_bytes()).decode("utf-8")
+
+    payload: dict = {"raw": raw}
+    if thread_id:
+        payload["threadId"] = thread_id
+
+    try:
+        result = service.users().messages().send(userId="me", body=payload).execute()
+        logger.info("send_email: enviado com sucesso para %s", to_email)
+        return result
+    except Exception as e:
+        logger.exception("send_email: falha ao enviar para %s - %s", to_email, e)
+        raise
