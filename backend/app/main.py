@@ -80,6 +80,13 @@ class SendBatchRequest(BaseModel):
     message_ids: list[str]
 
 
+class SendSingleRequest(BaseModel):
+    """Envio individual (para classificação manual)."""
+    to_email: str
+    subject: str
+    body: str
+
+
 class JobRunRequest(BaseModel):
     date_from: Optional[str] = None  # YYYY-MM-DD
     date_to: Optional[str] = None   # YYYY-MM-DD
@@ -127,6 +134,30 @@ async def classify_email(
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro ao processar email: {str(e)}")
+
+
+@app.post("/api/send-single")
+async def send_single_email(body: SendSingleRequest):
+    """
+    Envia um email individual (para classificação manual).
+    Requer Gmail conectado com permissão de envio.
+    """
+    if not gmail_service.is_authenticated():
+        raise HTTPException(status_code=401, detail="Conecte sua conta Gmail primeiro.")
+    email = (body.to_email or "").strip().lower()
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="Informe um email de destinatário válido.")
+    subject = (body.subject or "").strip() or "Resposta"
+    body_text = (body.body or "").strip()
+    if not body_text:
+        raise HTTPException(status_code=400, detail="O corpo da mensagem não pode estar vazio.")
+    try:
+        gmail_service.send_email(to_email=email, subject=subject, body=body_text)
+        return {"success": True, "message": "Email enviado com sucesso."}
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ============ Gmail OAuth ============
