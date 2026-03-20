@@ -34,7 +34,42 @@ Solução digital para automatizar a leitura e classificação de emails corpora
 
 ## Executando localmente
 
-### 0. Banco de dados (PostgreSQL)
+### Opção rápida: Makefile
+
+O projeto inclui um Makefile para facilitar o fluxo de desenvolvimento. **Recomendado para uso diário.**
+
+```bash
+# Primeira vez: instala dependências e sobe o banco
+make setup
+
+# Desenvolvimento: sobe banco + backend + frontend
+make dev
+```
+
+**Comandos disponíveis:**
+
+| Comando | Descrição |
+|---------|-----------|
+| `make` ou `make help` | Lista todos os comandos |
+| `make setup` | Instala dependências (backend + frontend) e sobe PostgreSQL |
+| `make up` | Sobe PostgreSQL via Docker |
+| `make down` | Para os containers |
+| `make backend` | Inicia a API FastAPI (porta 8000) |
+| `make frontend` | Inicia o Next.js (porta 3000) |
+| `make dev` | Sobe banco + backend + frontend em paralelo |
+| `make dev-backend` | Sobe banco e inicia apenas o backend |
+| `make dev-frontend` | Inicia apenas o frontend |
+| `make logs` | Exibe logs do PostgreSQL |
+| `make status` | Verifica status dos serviços |
+| `make clean` | Remove cache (.next, __pycache__) |
+
+O Makefile cria automaticamente um venv em `backend/.venv` para o backend (evita conflitos com o Python do sistema em macOS/Homebrew).
+
+---
+
+### Opção manual: passo a passo
+
+#### 0. Banco de dados (PostgreSQL)
 
 ```bash
 docker-compose up -d
