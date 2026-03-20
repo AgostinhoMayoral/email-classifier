@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 
 interface ClassificationResult {
   category: string;
@@ -80,6 +80,8 @@ export default function Home() {
     last_run_at: string | null;
   } | null>(null);
   const [jobRunLoading, setJobRunLoading] = useState(false);
+  const [resultModalOpen, setResultModalOpen] = useState(false);
+  const resultCardRef = useRef<HTMLDivElement>(null);
 
   const resetManualForm = useCallback(() => {
     setFile(null);
@@ -89,7 +91,20 @@ export default function Home() {
     setSubject("");
     setSendSingleSuccess(false);
     setError(null);
+    setResultModalOpen(false);
   }, []);
+
+  useEffect(() => {
+    if (result) {
+      setResultModalOpen(true);
+    }
+  }, [result]);
+
+  useEffect(() => {
+    if (result && activeTab === "manual" && resultCardRef.current) {
+      resultCardRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [result, activeTab]);
 
   useEffect(() => {
     fetch(`${API_URL}/api/auth/gmail/status`)
@@ -385,7 +400,12 @@ export default function Home() {
               {!gmailLoading && (
                 gmailAuth ? (
                   <div className="flex items-center gap-2">
-                    <span className="text-sm text-slate-400 truncate max-w-[140px]">{gmailAuth.email}</span>
+                    <div className="flex items-center gap-1.5 min-w-0" title={gmailAuth.email}>
+                      <span className="text-xs text-slate-500 shrink-0">Conectado como</span>
+                      <span className="text-sm text-slate-300 font-medium truncate max-w-[200px]" title={gmailAuth.email}>
+                        {gmailAuth.name || gmailAuth.email}
+                      </span>
+                    </div>
                     <button type="button" onClick={() => setJobConfigOpen(true)} className="px-3 py-1.5 rounded-lg text-sm border border-slate-600 hover:bg-slate-800/50 transition-colors">
                       Job Diário
                     </button>
@@ -403,7 +423,11 @@ export default function Home() {
             </div>
 
             <div className="flex md:hidden items-center gap-2">
-              {!gmailLoading && gmailAuth && <span className="text-xs text-slate-500 truncate max-w-[80px]">{gmailAuth.email}</span>}
+              {!gmailLoading && gmailAuth && (
+                <span className="text-xs text-slate-500 truncate max-w-[120px]" title={gmailAuth.email}>
+                  {gmailAuth.name || gmailAuth.email}
+                </span>
+              )}
               <button type="button" onClick={() => setMenuOpen((o) => !o)} className="p-2 rounded-lg border border-slate-600 hover:bg-slate-800/50 transition-colors" aria-label="Menu">
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   {menuOpen ? <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /> : <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />}
@@ -420,7 +444,11 @@ export default function Home() {
               <div className="px-4 py-4 space-y-2">
                 {gmailAuth ? (
                   <div className="space-y-2">
-                    <p className="text-sm text-slate-400 truncate px-2">{gmailAuth.email}</p>
+                    <div className="px-2 py-1 rounded-lg bg-slate-800/50">
+                      <p className="text-xs text-slate-500">Conectado como</p>
+                      <p className="text-sm font-medium text-slate-200 truncate" title={gmailAuth.email}>{gmailAuth.name || gmailAuth.email}</p>
+                      <p className="text-xs text-slate-500 truncate" title={gmailAuth.email}>{gmailAuth.email}</p>
+                    </div>
                     <button type="button" onClick={() => { setJobConfigOpen(true); setMenuOpen(false); }} className="w-full px-4 py-3 rounded-xl border border-slate-600 hover:bg-slate-800/50 text-left font-medium transition-colors">Job Diário</button>
                     <button type="button" onClick={() => { handleDisconnectGmail(); setMenuOpen(false); }} className="w-full px-4 py-3 rounded-xl border border-slate-600 hover:bg-slate-800/50 text-left font-medium transition-colors">Desconectar Gmail</button>
                   </div>
@@ -655,19 +683,19 @@ export default function Home() {
               </div>
 
               {result && (
-                <div className="rounded-2xl border border-[var(--card-border)] bg-[var(--card)] p-6 space-y-6 animate-fade-in">
-                  <h3 className="text-lg font-semibold text-slate-300">Resultado da análise</h3>
-
-                  <div className="grid gap-6 sm:grid-cols-2">
-                    <div className="rounded-xl bg-slate-800/50 border border-slate-700 p-4">
-                      <p className="text-sm font-medium text-slate-500 mb-2">Categoria</p>
-                      <div className="flex items-center gap-3">
-                        <span className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl font-semibold ${isProdutivo ? "bg-emerald-500/20 text-emerald-400" : "bg-amber-500/20 text-amber-400"}`}>
-                          {isProdutivo ? <><span className="w-2 h-2 rounded-full bg-emerald-400" />Produtivo</> : <><span className="w-2 h-2 rounded-full bg-amber-400" />Improdutivo</>}
-                        </span>
-                        <span className="text-slate-500 text-sm">{Math.round(result.confidence * 100)}% confiança</span>
-                      </div>
+                <div ref={resultCardRef} className="rounded-2xl border border-cyan-500/20 bg-[var(--card)] p-6 space-y-6 animate-fade-in shadow-lg shadow-cyan-500/5">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-lg bg-cyan-500/20 flex items-center justify-center">
+                      <svg className="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                     </div>
+                    <h3 className="text-lg font-semibold text-slate-300">Resultado da análise</h3>
+                  </div>
+
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <span className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl font-semibold text-sm ${isProdutivo ? "bg-emerald-500/20 text-emerald-400" : "bg-amber-500/20 text-amber-400"}`}>
+                      {isProdutivo ? <><span className="w-2 h-2 rounded-full bg-emerald-400" />Produtivo</> : <><span className="w-2 h-2 rounded-full bg-amber-400" />Improdutivo</>}
+                    </span>
+                    <span className="text-slate-500 text-sm">{Math.round(result.confidence * 100)}% confiança</span>
                   </div>
 
                   <div>
@@ -735,6 +763,58 @@ export default function Home() {
           )}
         </div>
       </main>
+
+      {/* Modal: Resultado da classificação */}
+      {resultModalOpen && result && (
+        <>
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-40 animate-fade-in" onClick={() => setResultModalOpen(false)} aria-hidden />
+          <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-lg max-h-[90vh] overflow-hidden z-50 animate-fade-in flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="rounded-2xl border border-cyan-500/30 bg-[var(--card)] shadow-2xl shadow-cyan-500/10 overflow-hidden flex flex-col max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
+              <div className="px-6 py-4 border-b border-slate-700 bg-gradient-to-r from-cyan-500/10 to-teal-500/10">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-10 h-10 rounded-xl bg-cyan-500/20 flex items-center justify-center">
+                      <svg className="w-6 h-6 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-semibold text-slate-200">Análise concluída!</h3>
+                      <p className="text-sm text-slate-500">Sua classificação e resposta sugerida estão prontas</p>
+                    </div>
+                  </div>
+                  <button type="button" onClick={() => setResultModalOpen(false)} className="p-2 rounded-lg hover:bg-slate-700/50 text-slate-400 hover:text-slate-200 transition-colors" aria-label="Fechar">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                  </button>
+                </div>
+              </div>
+              <div className="flex-1 overflow-y-auto p-6 space-y-5">
+                <div className="flex items-center gap-3">
+                  <span className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm ${isProdutivo ? "bg-emerald-500/20 text-emerald-400 ring-1 ring-emerald-500/30" : "bg-amber-500/20 text-amber-400 ring-1 ring-amber-500/30"}`}>
+                    {isProdutivo ? <><span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />Produtivo</> : <><span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse" />Improdutivo</>}
+                  </span>
+                  <span className="text-slate-500 text-sm">{Math.round(result.confidence * 100)}% de confiança</span>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-slate-400 mb-2">Resposta sugerida pela IA</p>
+                  <div className="p-4 rounded-xl bg-slate-800/80 border border-slate-600/80">
+                    <p className="text-slate-200 whitespace-pre-wrap leading-relaxed text-[15px]">{result.suggested_response}</p>
+                  </div>
+                  <button type="button" onClick={() => navigator.clipboard.writeText(result.suggested_response)} className="mt-3 flex items-center gap-2 text-sm text-cyan-400 hover:text-cyan-300 transition-colors font-medium">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                    Copiar resposta
+                  </button>
+                </div>
+              </div>
+              <div className="px-6 py-4 border-t border-slate-700 bg-slate-800/30">
+                <button type="button" onClick={() => setResultModalOpen(false)} className="w-full py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-700 font-medium transition-colors">
+                  Entendi
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
 
       {jobConfigOpen && (
         <>
