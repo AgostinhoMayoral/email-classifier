@@ -21,6 +21,8 @@ Para usar a leitura automática de emails do Gmail, é necessário configurar um
    - **Domínios autorizados**: deixe em branco para localhost
 4. Em **Escopos**, adicione:
    - `https://www.googleapis.com/auth/gmail.readonly`
+   - `https://www.googleapis.com/auth/gmail.send`
+   - `https://www.googleapis.com/auth/gmail.compose`
    - `https://www.googleapis.com/auth/userinfo.email`
    - `https://www.googleapis.com/auth/userinfo.profile`
 5. Adicione usuários de teste (seu email) se o app estiver em modo de teste
@@ -89,6 +91,20 @@ FRONTEND_URL=https://seudominio.com
 4. Clique em **Conectar Gmail**
 5. Faça login com sua conta Google e autorize o acesso
 6. Os emails da caixa de entrada aparecerão automaticamente
+
+## Permissão de envio (OBRIGATÓRIO para enviar emails)
+
+Para **enviar** respostas automáticas, os escopos `gmail.send` e `gmail.compose` precisam estar na **Tela de consentimento OAuth**:
+
+1. Vá em **APIs e Serviços** → **Tela de consentimento OAuth**
+2. Clique em **EDITAR APP**
+3. Avance até **Escopos** e clique em **ADICIONAR OU REMOVER ESCOPOS**
+4. Pesquise e marque:
+   - `.../auth/gmail.send` — "Enviar email em seu nome"
+   - `.../auth/gmail.compose` — "Criar rascunhos e enviar emails"
+5. **Salve** e continue
+
+Depois, **apague o arquivo** `backend/gmail_tokens.json` (se existir) e conecte o Gmail novamente. Sem esses escopos na tela de consentimento, o Google não concede permissão de envio.
 
 ## Segurança
 

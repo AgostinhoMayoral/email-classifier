@@ -16,7 +16,19 @@ interface GmailMessage {
   subject: string;
   from: string;
   date: string;
-  labelIds: string[];
+  already_sent?: boolean;
+  record_id?: number;
+  status?: string;
+  category?: string | null;
+  confidence?: number | null;
+  suggested_response?: string | null;
+}
+
+interface Pagination {
+  page: number;
+  per_page: number;
+  total: number;
+  total_pages: number;
 }
 
 const API_URL =
@@ -31,13 +43,35 @@ export default function Home() {
   const [dragActive, setDragActive] = useState(false);
 
   // Gmail
-  const [gmailAuth, setGmailAuth] = useState<{ email: string; name?: string } | null>(null);
+  const [gmailAuth, setGmailAuth] = useState<{ email: string; name?: string; can_send?: boolean } | null>(null);
   const [gmailLoading, setGmailLoading] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
   const [emails, setEmails] = useState<GmailMessage[]>([]);
   const [emailsLoading, setEmailsLoading] = useState(false);
   const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
   const [classifyLoading, setClassifyLoading] = useState(false);
+
+  // Paginação e filtros
+  const [page, setPage] = useState(1);
+  const [perPage] = useState(10);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [sendLoading, setSendLoading] = useState(false);
+  const [sendResult, setSendResult] = useState<{ sent: number; skipped: number; errors: { gmail_id: string; error: string }[] } | null>(null);
+  const [pagination, setPagination] = useState<Pagination | null>(null);
+
+  // Job config
+  const [jobConfigOpen, setJobConfigOpen] = useState(false);
+  const [jobConfig, setJobConfig] = useState<{
+    enabled: boolean;
+    cron_expression: string;
+    date_from: string | null;
+    date_to: string | null;
+    only_productive: boolean;
+    last_run_at: string | null;
+  } | null>(null);
+  const [jobRunLoading, setJobRunLoading] = useState(false);
 
   const resetForm = useCallback(() => {
     setFile(null);
@@ -46,13 +80,12 @@ export default function Home() {
     setError(null);
   }, []);
 
-  // Verificar status do Gmail ao carregar
   useEffect(() => {
     fetch(`${API_URL}/api/auth/gmail/status`)
       .then((r) => r.json())
       .then((data) => {
         if (data.authenticated) {
-          setGmailAuth({ email: data.email, name: data.name });
+          setGmailAuth({ email: data.email, name: data.name, can_send: data.can_send });
         } else {
           setGmailAuth(null);
         }
@@ -61,7 +94,6 @@ export default function Home() {
       .finally(() => setGmailLoading(false));
   }, []);
 
-  // Tratar retorno do OAuth (gmail_success ou gmail_error na URL)
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
@@ -69,9 +101,15 @@ export default function Home() {
     const err = params.get("gmail_error");
     const email = params.get("email");
     if (success) {
-      setGmailAuth({ email: email || "" });
       setError(null);
       window.history.replaceState({}, "", window.location.pathname);
+      fetch(`${API_URL}/api/auth/gmail/status`)
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.authenticated) {
+            setGmailAuth({ email: data.email || email, name: data.name, can_send: data.can_send });
+          }
+        });
     }
     if (err) {
       setError(decodeURIComponent(err));
@@ -95,6 +133,7 @@ export default function Home() {
       setEmails([]);
       setSelectedEmailId(null);
       setResult(null);
+      setSelectedIds(new Set());
     } catch {
       setError("Erro ao desconectar");
     }
@@ -103,15 +142,24 @@ export default function Home() {
   const fetchEmails = useCallback(() => {
     if (!gmailAuth) return;
     setEmailsLoading(true);
-    fetch(`${API_URL}/api/emails?max_results=20`)
+    setError(null);
+    const params = new URLSearchParams();
+    params.set("page", String(page));
+    params.set("per_page", String(perPage));
+    if (dateFrom) params.set("date_from", dateFrom);
+    if (dateTo) params.set("date_to", dateTo);
+    fetch(`${API_URL}/api/emails?${params}`)
       .then((r) => {
         if (!r.ok) throw new Error("Erro ao buscar emails");
         return r.json();
       })
-      .then((data) => setEmails(data.emails || []))
+      .then((data) => {
+        setEmails(data.emails || []);
+        setPagination(data.pagination || null);
+      })
       .catch((err) => setError(err.message))
       .finally(() => setEmailsLoading(false));
-  }, [gmailAuth]);
+  }, [gmailAuth, page, perPage, dateFrom, dateTo]);
 
   useEffect(() => {
     if (gmailAuth) fetchEmails();
@@ -129,10 +177,91 @@ export default function Home() {
       const data: ClassificationResult = await res.json();
       setResult(data);
       setSelectedEmailId(messageId);
+      fetchEmails();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao classificar");
     } finally {
       setClassifyLoading(false);
+    }
+  };
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    const canSend = emails.filter((e) => !e.already_sent);
+    if (selectedIds.size >= canSend.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(canSend.map((e) => e.id)));
+    }
+  };
+
+  const handleSendSelected = async () => {
+    if (selectedIds.size === 0) {
+      setError("Selecione pelo menos um email para enviar.");
+      return;
+    }
+    setSendLoading(true);
+    setError(null);
+    setSendResult(null);
+    try {
+      const res = await fetch(`${API_URL}/api/emails/send-batch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message_ids: Array.from(selectedIds) }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Erro ao enviar");
+      setSendResult(data);
+      setSelectedIds(new Set());
+      fetchEmails();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao enviar");
+    } finally {
+      setSendLoading(false);
+    }
+  };
+
+  const fetchJobConfig = useCallback(() => {
+    fetch(`${API_URL}/api/jobs/config`)
+      .then((r) => r.json())
+      .then(setJobConfig)
+      .catch(() => setJobConfig(null));
+  }, []);
+
+  useEffect(() => {
+    if (jobConfigOpen) fetchJobConfig();
+  }, [jobConfigOpen, fetchJobConfig]);
+
+  const handleRunJob = async () => {
+    setJobRunLoading(true);
+    setError(null);
+    try {
+      const body: { date_from?: string; date_to?: string; only_productive?: boolean } = {};
+      if (dateFrom) body.date_from = dateFrom;
+      if (dateTo) body.date_to = dateTo;
+      body.only_productive = jobConfig?.only_productive ?? false;
+      const res = await fetch(`${API_URL}/api/jobs/run`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || data.error || "Erro ao executar job");
+      setError(null);
+      setJobConfigOpen(false);
+      fetchEmails();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao executar job");
+    } finally {
+      setJobRunLoading(false);
     }
   };
 
@@ -215,6 +344,7 @@ export default function Home() {
   };
 
   const isProdutivo = result?.category === "Produtivo";
+  const canSendCount = emails.filter((e) => !e.already_sent).length;
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -248,7 +378,6 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Desktop: Gmail actions */}
             <div className="hidden md:flex items-center gap-2">
               {!gmailLoading && (
                 gmailAuth ? (
@@ -256,6 +385,13 @@ export default function Home() {
                     <span className="text-sm text-slate-400 truncate max-w-[140px]">
                       {gmailAuth.email}
                     </span>
+                    <button
+                      type="button"
+                      onClick={() => setJobConfigOpen(true)}
+                      className="px-3 py-1.5 rounded-lg text-sm border border-slate-600 hover:bg-slate-800/50 transition-colors"
+                    >
+                      Job Diário
+                    </button>
                     <button
                       type="button"
                       onClick={handleDisconnectGmail}
@@ -279,7 +415,6 @@ export default function Home() {
               )}
             </div>
 
-            {/* Mobile: Hamburger */}
             <div className="flex md:hidden items-center gap-2">
               {!gmailLoading && gmailAuth && (
                 <span className="text-xs text-slate-500 truncate max-w-[80px]">
@@ -309,7 +444,6 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Mobile menu dropdown */}
         {menuOpen && (
           <>
             <div
@@ -327,6 +461,16 @@ export default function Home() {
                       <p className="text-sm text-slate-400 truncate px-2">
                         {gmailAuth.email}
                       </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setJobConfigOpen(true);
+                          setMenuOpen(false);
+                        }}
+                        className="w-full px-4 py-3 rounded-xl border border-slate-600 hover:bg-slate-800/50 text-left font-medium transition-colors"
+                      >
+                        Job Diário
+                      </button>
                       <button
                         type="button"
                         onClick={() => {
@@ -362,34 +506,115 @@ export default function Home() {
 
       <main className="flex-1 max-w-4xl w-full mx-auto px-4 sm:px-6 py-8 sm:py-12">
         <div className="space-y-8">
-          {/* Intro */}
           <section className="text-center space-y-2">
             <h2 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-cyan-400 to-teal-400 bg-clip-text text-transparent">
               Automatize sua caixa de entrada
             </h2>
             <p className="text-slate-400 max-w-xl mx-auto">
-              Conecte seu Gmail para ler emails automaticamente, ou envie um arquivo .txt/.pdf
-              ou cole o texto. Nossa IA irá classificar e sugerir respostas.
+              Conecte seu Gmail para ler emails automaticamente, filtre por período,
+              selecione os que deseja responder e envie as sugestões da IA em lote.
             </p>
           </section>
 
           {/* Gmail - Lista de emails */}
           {gmailAuth && (
             <section className="space-y-4 animate-fade-in">
-              <div className="flex items-center justify-between">
+              {gmailAuth.can_send === false && (
+                <div className="p-4 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 text-sm">
+                  <strong>Envio desabilitado.</strong> Seu token atual não tem permissão para enviar emails.
+                  Clique em <strong>Desconectar</strong> e depois em <strong>Conectar Gmail</strong> novamente.
+                  Certifique-se de que os escopos gmail.send e gmail.compose estão na Tela de consentimento OAuth do Google Cloud.
+                </div>
+              )}
+              <div className="flex flex-wrap items-center justify-between gap-4">
                 <h3 className="text-lg font-semibold text-slate-300">
                   Emails do Gmail
                 </h3>
-                <button
-                  type="button"
-                  onClick={fetchEmails}
-                  disabled={emailsLoading}
-                  className="text-sm text-cyan-400 hover:text-cyan-300 disabled:opacity-50"
-                >
-                  {emailsLoading ? "Carregando..." : "Atualizar"}
-                </button>
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm text-slate-500">De</label>
+                    <input
+                      type="date"
+                      value={dateFrom}
+                      onChange={(e) => {
+                        setDateFrom(e.target.value);
+                        setPage(1);
+                      }}
+                      className="px-3 py-1.5 rounded-lg bg-slate-800/50 border border-slate-600 text-sm"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm text-slate-500">Até</label>
+                    <input
+                      type="date"
+                      value={dateTo}
+                      onChange={(e) => {
+                        setDateTo(e.target.value);
+                        setPage(1);
+                      }}
+                      className="px-3 py-1.5 rounded-lg bg-slate-800/50 border border-slate-600 text-sm"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={fetchEmails}
+                    disabled={emailsLoading}
+                    className="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 text-sm font-medium transition-colors"
+                  >
+                    {emailsLoading ? "Carregando..." : "Buscar"}
+                  </button>
+                </div>
               </div>
-              <div className="rounded-2xl border border-[var(--card-border)] bg-[var(--card)] overflow-hidden max-h-[320px] overflow-y-auto">
+
+              {selectedIds.size > 0 && (
+                <div className="flex items-center justify-between p-4 rounded-xl bg-cyan-500/10 border border-cyan-500/30">
+                  <span className="text-sm text-slate-300">
+                    {selectedIds.size} email(s) selecionado(s)
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleSendSelected}
+                    disabled={sendLoading || gmailAuth.can_send === false}
+                    title={gmailAuth.can_send === false ? "Reconecte o Gmail para habilitar envio" : undefined}
+                    className="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium transition-colors"
+                  >
+                    {sendLoading ? "Enviando..." : gmailAuth.can_send === false ? "Reconecte para enviar" : "Enviar respostas"}
+                  </button>
+                </div>
+              )}
+
+              {sendResult && (
+                <div className={`p-4 rounded-xl border text-sm animate-fade-in ${
+                  sendResult.errors?.length
+                    ? "bg-amber-500/10 border-amber-500/30"
+                    : "bg-emerald-500/10 border-emerald-500/30"
+                }`}>
+                  <div className="text-slate-300">
+                    Enviados: {sendResult.sent} | Ignorados: {sendResult.skipped}
+                    {sendResult.errors?.length > 0 && (
+                      <span className="text-amber-400 ml-2">| Erros: {sendResult.errors.length}</span>
+                    )}
+                  </div>
+                  {sendResult.errors?.length > 0 && (
+                    <div className="mt-3 space-y-1">
+                      {sendResult.errors.map((err: { gmail_id?: string; error: string }, i: number) => (
+                        <div key={i} className="text-amber-400 text-xs">
+                          {err.error}
+                          {err.error.toLowerCase().includes("permission") ||
+                           err.error.toLowerCase().includes("scope") ||
+                           err.error.toLowerCase().includes("insufficient") ? (
+                            <p className="mt-1 text-cyan-400">
+                              Desconecte o Gmail e conecte novamente para autorizar o envio de emails.
+                            </p>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="rounded-2xl border border-[var(--card-border)] bg-[var(--card)] overflow-hidden">
                 {emailsLoading ? (
                   <div className="p-8 text-center text-slate-500">
                     Carregando emails...
@@ -399,39 +624,109 @@ export default function Home() {
                     Nenhum email encontrado.
                   </div>
                 ) : (
-                  <ul className="divide-y divide-slate-700">
-                    {emails.map((msg) => (
-                      <li key={msg.id} className="hover:bg-slate-800/30 transition-colors">
-                        <button
-                          type="button"
-                          onClick={() => handleClassifyGmailEmail(msg.id)}
-                          disabled={classifyLoading}
-                          className="w-full text-left px-4 py-3 block disabled:opacity-50"
+                  <>
+                    <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-700 bg-slate-800/30">
+                      <input
+                        type="checkbox"
+                        checked={canSendCount > 0 && selectedIds.size === canSendCount}
+                        onChange={toggleSelectAll}
+                        className="rounded border-slate-600"
+                      />
+                      <span className="text-sm text-slate-400">
+                        Selecionar todos ({canSendCount} disponíveis)
+                      </span>
+                    </div>
+                    <ul className="divide-y divide-slate-700 max-h-[400px] overflow-y-auto">
+                      {emails.map((msg) => (
+                        <li
+                          key={msg.id}
+                          className={`hover:bg-slate-800/30 transition-colors ${msg.already_sent ? "opacity-60" : ""}`}
                         >
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0 flex-1">
-                              <p className="font-medium text-slate-200 truncate">
-                                {msg.subject}
-                              </p>
-                              <p className="text-sm text-slate-500 truncate">
-                                {msg.from}
-                              </p>
-                              <p className="text-xs text-slate-600 mt-0.5 line-clamp-2">
-                                {msg.snippet}
-                              </p>
-                            </div>
-                            <span className="text-xs text-slate-500 shrink-0">
-                              {msg.date}
-                            </span>
+                          <div className="flex items-start gap-3 px-4 py-3">
+                            {!msg.already_sent && (
+                              <input
+                                type="checkbox"
+                                checked={selectedIds.has(msg.id)}
+                                onChange={() => toggleSelect(msg.id)}
+                                className="mt-1 rounded border-slate-600"
+                              />
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => handleClassifyGmailEmail(msg.id)}
+                              disabled={classifyLoading}
+                              className="flex-1 text-left min-w-0 disabled:opacity-50"
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <p className="font-medium text-slate-200 truncate">
+                                      {msg.subject}
+                                    </p>
+                                    {msg.already_sent && (
+                                      <span className="text-xs px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400">
+                                        Enviado
+                                      </span>
+                                    )}
+                                    {msg.category && !msg.already_sent && (
+                                      <span
+                                        className={`text-xs px-2 py-0.5 rounded ${
+                                          msg.category === "Produtivo"
+                                            ? "bg-emerald-500/20 text-emerald-400"
+                                            : "bg-amber-500/20 text-amber-400"
+                                        }`}
+                                      >
+                                        {msg.category}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p className="text-sm text-slate-500 truncate">
+                                    {msg.from}
+                                  </p>
+                                  <p className="text-xs text-slate-600 mt-0.5 line-clamp-2">
+                                    {msg.snippet}
+                                  </p>
+                                </div>
+                                <span className="text-xs text-slate-500 shrink-0">
+                                  {msg.date}
+                                </span>
+                              </div>
+                            </button>
                           </div>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
+                        </li>
+                      ))}
+                    </ul>
+                    {pagination && pagination.total_pages > 1 && (
+                      <div className="flex items-center justify-between px-4 py-3 border-t border-slate-700 bg-slate-800/30">
+                        <span className="text-sm text-slate-400">
+                          Página {pagination.page} de {pagination.total_pages} ({pagination.total} emails)
+                        </span>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setPage((p) => Math.max(1, p - 1))}
+                            disabled={page <= 1}
+                            className="px-3 py-1.5 rounded-lg border border-slate-600 hover:bg-slate-700/50 disabled:opacity-50 text-sm"
+                          >
+                            Anterior
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setPage((p) => Math.min(pagination.total_pages, p + 1))}
+                            disabled={page >= pagination.total_pages}
+                            className="px-3 py-1.5 rounded-lg border border-slate-600 hover:bg-slate-700/50 disabled:opacity-50 text-sm"
+                          >
+                            Próxima
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
               <p className="text-sm text-slate-500">
-                Clique em um email para classificar com IA e obter sugestão de resposta.
+                Clique em um email para classificar com IA. Selecione os que deseja enviar e clique em &quot;Enviar respostas&quot;.
+                Se o envio falhar por permissão, desconecte e conecte o Gmail novamente.
               </p>
             </section>
           )}
@@ -439,7 +734,6 @@ export default function Home() {
           {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="grid gap-6 sm:grid-cols-2">
-              {/* Upload Area */}
               <div
                 onDragEnter={handleDrag}
                 onDragLeave={handleDrag}
@@ -483,7 +777,6 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* Text Input */}
               <div className="space-y-2">
                 <label
                   htmlFor="text-input"
@@ -505,7 +798,6 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Actions */}
             <div className="flex flex-wrap gap-4">
               <button
                 type="submit"
@@ -550,7 +842,6 @@ export default function Home() {
             </div>
           </form>
 
-          {/* Error */}
           {error && (
             <div
               className="p-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 animate-fade-in"
@@ -560,7 +851,6 @@ export default function Home() {
             </div>
           )}
 
-          {/* Results */}
           {result && (
             <section className="space-y-6 animate-fade-in">
               <h3 className="text-lg font-semibold text-slate-300">
@@ -568,7 +858,6 @@ export default function Home() {
               </h3>
 
               <div className="grid gap-6 sm:grid-cols-2">
-                {/* Category Card */}
                 <div className="rounded-2xl bg-[var(--card)] border border-[var(--card-border)] p-6">
                   <p className="text-sm font-medium text-slate-500 mb-2">
                     Categoria
@@ -604,7 +893,6 @@ export default function Home() {
                   </p>
                 </div>
 
-                {/* Response Card */}
                 <div className="rounded-2xl bg-[var(--card)] border border-[var(--card-border)] p-6 sm:col-span-2">
                   <p className="text-sm font-medium text-slate-500 mb-3">
                     Resposta sugerida
@@ -643,11 +931,89 @@ export default function Home() {
         </div>
       </main>
 
-      {/* Footer */}
+      {/* Modal Job Config */}
+      {jobConfigOpen && (
+        <>
+          <div
+            className="fixed inset-0 bg-black/60 z-40"
+            onClick={() => setJobConfigOpen(false)}
+            aria-hidden
+          />
+          <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-[var(--card)] border border-[var(--card-border)] rounded-2xl shadow-xl z-50 p-6 animate-fade-in">
+            <h3 className="text-lg font-semibold text-slate-200 mb-4">
+              Job Diário
+            </h3>
+            <p className="text-sm text-slate-400 mb-4">
+              Execute automaticamente a classificação e envio de emails no período configurado.
+            </p>
+            {jobConfig && (
+              <div className="space-y-4 text-sm">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="job-enabled"
+                    checked={jobConfig.enabled}
+                    onChange={async (e) => {
+                      const v = e.target.checked;
+                      setJobConfig((c) => c && { ...c, enabled: v });
+                      await fetch(`${API_URL}/api/jobs/config`, {
+                        method: "PUT",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ enabled: v }),
+                      });
+                    }}
+                  />
+                  <label htmlFor="job-enabled">Ativo</label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="job-only-productive"
+                    checked={jobConfig.only_productive}
+                    onChange={async (e) => {
+                      const v = e.target.checked;
+                      setJobConfig((c) => c && { ...c, only_productive: v });
+                      await fetch(`${API_URL}/api/jobs/config`, {
+                        method: "PUT",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ only_productive: v }),
+                      });
+                    }}
+                  />
+                  <label htmlFor="job-only-productive">Enviar apenas emails produtivos</label>
+                </div>
+                {jobConfig.last_run_at && (
+                  <p className="text-slate-500">
+                    Última execução: {new Date(jobConfig.last_run_at).toLocaleString("pt-BR")}
+                  </p>
+                )}
+              </div>
+            )}
+            <div className="flex gap-3 mt-6">
+              <button
+                type="button"
+                onClick={handleRunJob}
+                disabled={jobRunLoading}
+                className="flex-1 px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 font-medium transition-colors"
+              >
+                {jobRunLoading ? "Executando..." : "Executar agora"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setJobConfigOpen(false)}
+                className="px-4 py-2 rounded-xl border border-slate-600 hover:bg-slate-800/50"
+              >
+                Fechar
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
       <footer className="border-t border-[var(--card-border)] py-6 mt-auto">
         <div className="max-w-4xl mx-auto px-6 text-center text-sm text-slate-500">
           Classificação em Produtivo (requer ação) ou Improdutivo (não requer
-          ação) • Powered by NLP + IA
+          ação) • Powered by NLP + IA • PostgreSQL + Job Diário
         </div>
       </footer>
     </div>
