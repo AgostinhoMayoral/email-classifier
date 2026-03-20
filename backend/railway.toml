@@ -1,0 +1,10 @@
+# Configuração do Railway para deploy do backend
+# https://docs.railway.app/reference/config-as-code
+
+[build]
+builder = "nixpacks"
+
+[deploy]
+startCommand = "sh scripts/start.sh"
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3
