@@ -3,65 +3,91 @@ Processador principal: classificação e geração de respostas.
 Utiliza Hugging Face Inference API com fallback para lógica baseada em regras.
 """
 
+import logging
 import os
+import time
 import httpx
 from typing import Dict, Any
 
 from app.services.nlp_preprocessor import preprocess_text, get_key_phrases
 
+logger = logging.getLogger(__name__)
 
-# Configuração da API
-HF_API_URL = "https://api-inference.huggingface.co/models"
+# Nova API Hugging Face (api-inference foi descontinuada em 2025)
+HF_CHAT_URL = "https://router.huggingface.co/v1/chat/completions"
 HF_TOKEN = os.getenv("HF_TOKEN", os.getenv("HUGGINGFACE_TOKEN", ""))
 
-# Modelos Hugging Face
-CLASSIFICATION_MODEL = "facebook/bart-large-mnli"  # Zero-shot classification
-TEXT_GENERATION_MODEL = "google/flan-t5-base"  # Geração de texto
+# Modelo para chat (classificação + geração via prompt)
+# meta-llama/Llama-3.1-8B-Instruct disponível em novita, cerebras, etc.
+# :cheapest = tier gratuito quando disponível
+CHAT_MODEL = os.getenv("HF_CHAT_MODEL", "meta-llama/Llama-3.1-8B-Instruct:cheapest")
+
+# Retry para modelo em carregamento (503)
+HF_MAX_RETRIES = 3
+HF_RETRY_DELAY = 5
+
+
+def _chat_completion(prompt: str, max_tokens: int = 150) -> str | None:
+    """Chama a API de chat do Hugging Face (nova API router.huggingface.co)."""
+    if not HF_TOKEN:
+        return None
+    headers = {
+        "Authorization": f"Bearer {HF_TOKEN}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": CHAT_MODEL,
+        "messages": [{"role": "user", "content": prompt[:2000]}],
+        "max_tokens": max_tokens,
+        "temperature": 0.3,
+    }
+    for attempt in range(HF_MAX_RETRIES):
+        try:
+            with httpx.Client(timeout=45.0) as client:
+                response = client.post(HF_CHAT_URL, headers=headers, json=payload)
+                if response.status_code == 200:
+                    data = response.json()
+                    content = (data.get("choices") or [{}])[0].get("message", {}).get("content", "")
+                    if content and content.strip():
+                        return content.strip()
+                elif response.status_code == 503 and attempt < HF_MAX_RETRIES - 1:
+                    est = 5
+                    try:
+                        est = response.json().get("estimated_time", 5)
+                    except Exception:
+                        pass
+                    logger.info("Modelo carregando (503), aguardando %ss...", min(est, HF_RETRY_DELAY))
+                    time.sleep(min(est, HF_RETRY_DELAY))
+                else:
+                    logger.warning("HF chat API: %s %s", response.status_code, response.text[:300])
+        except Exception as e:
+            logger.warning("Erro HF chat: %s", e)
+            if attempt < HF_MAX_RETRIES - 1:
+                time.sleep(HF_RETRY_DELAY)
+    return None
 
 
 def _classify_with_hf(text: str) -> Dict[str, Any] | None:
     """
-    Classifica texto usando Hugging Face Inference API (zero-shot).
+    Classifica texto usando Hugging Face Chat API.
     Categorias: Produtivo (requer ação) vs Improdutivo (não requer ação).
     """
-    if not HF_TOKEN:
+    prompt = f"""Classifique este email em UMA palavra: Produtivo ou Improdutivo.
+Produtivo = solicita ação, suporte, informação, pedido.
+Improdutivo = cumprimento, agradecimento, mensagem sem ação necessária.
+
+Email: "{text[:400]}"
+
+Responda APENAS com a palavra: Produtivo ou Improdutivo"""
+    result = _chat_completion(prompt, max_tokens=20)
+    if not result:
         return None
-
-    headers = {"Authorization": f"Bearer {HF_TOKEN}"}
-    payload = {
-        "inputs": text[:512],  # Limitar tamanho
-        "parameters": {
-            "candidate_labels": [
-                "solicitação de suporte ou ação específica",
-                "mensagem de cumprimento ou agradecimento sem ação necessária"
-            ],
-            "multi_label": False
-        }
-    }
-
-    try:
-        with httpx.Client(timeout=30.0) as client:
-            response = client.post(
-                f"{HF_API_URL}/{CLASSIFICATION_MODEL}",
-                headers=headers,
-                json=payload
-            )
-            if response.status_code == 200:
-                result = response.json()
-                if result and isinstance(result, dict):
-                    labels = result.get("labels", [])
-                    scores = result.get("scores", [])
-                    if labels and scores:
-                        # labels[0] = solicitação (Produtivo), labels[1] = mensagem (Improdutivo)
-                        idx_produtivo = 0 if "solicitação" in str(labels[0]).lower() else 1
-                        idx_improdutivo = 1 - idx_produtivo
-                        if scores[idx_produtivo] > scores[idx_improdutivo]:
-                            return {"category": "Produtivo", "confidence": float(scores[idx_produtivo])}
-                        else:
-                            return {"category": "Improdutivo", "confidence": float(scores[idx_improdutivo])}
-    except Exception:
-        pass
-    return None
+    r = result.strip().lower()
+    if "produtivo" in r:
+        return {"category": "Produtivo", "confidence": 0.85}
+    if "improdutivo" in r:
+        return {"category": "Improdutivo", "confidence": 0.85}
+    return {"category": "Produtivo", "confidence": 0.65}  # default
 
 
 def _classify_rule_based(text: str, preprocessed: str) -> tuple[str, float]:
@@ -110,55 +136,20 @@ def _classify_rule_based(text: str, preprocessed: str) -> tuple[str, float]:
 
 def _generate_response_with_hf(email_text: str, category: str) -> str | None:
     """
-    Gera resposta sugerida usando Hugging Face.
+    Gera resposta sugerida usando Hugging Face Chat API.
+    Prompt flexível: a IA responde ao conteúdo real (comidas, pedidos, etc).
     """
     if not HF_TOKEN:
+        logger.warning("HF_TOKEN não configurado - usando template")
         return None
 
-    if category == "Produtivo":
-        prompt = f"""Email recebido: "{email_text[:300]}"
+    prompt = f"""Mensagem recebida: "{email_text[:500]}"
 
-Gere uma resposta profissional e cordial em português para este email que solicita uma ação. A resposta deve:
-- Reconhecer o pedido
-- Informar que a solicitação será analisada
-- Dar um prazo estimado se possível
-- Ser concisa (2-4 frases)
+Responda de forma cordial e profissional em português, considerando o assunto da mensagem. Seja ESPECÍFICO ao conteúdo (não use resposta genérica). Máximo 4 frases. Apenas a resposta, sem prefixos."""
 
-Resposta:"""
-    else:
-        prompt = f"""Email recebido: "{email_text[:300]}"
-
-Este é um email de cumprimento ou agradecimento. Gere uma resposta breve e cordial em português (1-2 frases) agradecendo e desejando o mesmo.
-
-Resposta:"""
-
-    headers = {"Authorization": f"Bearer {HF_TOKEN}"}
-    payload = {
-        "inputs": prompt[:1024],
-        "parameters": {
-            "max_new_tokens": 150,
-            "temperature": 0.7,
-            "do_sample": True
-        }
-    }
-
-    try:
-        with httpx.Client(timeout=30.0) as client:
-            response = client.post(
-                f"{HF_API_URL}/{TEXT_GENERATION_MODEL}",
-                headers=headers,
-                json=payload
-            )
-            if response.status_code == 200:
-                result = response.json()
-                if isinstance(result, list) and result:
-                    generated = result[0].get("generated_text", "")
-                    # Extrair apenas a parte da resposta (após o prompt)
-                    if "Resposta:" in generated:
-                        return generated.split("Resposta:")[-1].strip()
-                    return generated.strip()
-    except Exception:
-        pass
+    result = _chat_completion(prompt, max_tokens=250)
+    if result and len(result) > 15:
+        return result
     return None
 
 
@@ -208,14 +199,17 @@ def process_email(email_text: str) -> Dict[str, Any]:
     if category not in ["Produtivo", "Improdutivo"]:
         category = "Produtivo" if "produtivo" in str(category).lower() else "Improdutivo"
 
-    # Geração de resposta
+    # Geração de resposta - sempre tenta IA primeiro
     suggested_response = _generate_response_with_hf(email_text, category)
+    ai_used = bool(suggested_response)
     if not suggested_response:
+        logger.warning("Usando template de fallback (IA indisponível ou falhou)")
         suggested_response = _generate_response_template(category, email_text[:100])
 
     return {
         "category": category,
         "confidence": round(confidence, 2),
         "suggested_response": suggested_response.strip(),
-        "processed_text": processed_text[:500]  # Para debug/transparência
+        "processed_text": processed_text[:500],
+        "ai_used": ai_used,
     }

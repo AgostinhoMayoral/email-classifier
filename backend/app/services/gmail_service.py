@@ -221,6 +221,7 @@ def list_messages_paginated(
 ) -> tuple[list[dict], int]:
     """
     Lista mensagens do Gmail com paginação real via pageToken.
+    Busca apenas mensagens da caixa de entrada (INBOX), excluindo as enviadas pelo usuário.
     Busca todas as mensagens necessárias (até MAX_MESSAGES_FETCH) e retorna a página solicitada.
 
     Returns:
@@ -232,6 +233,11 @@ def list_messages_paginated(
 
     service = build("gmail", "v1", credentials=creds)
 
+    # Sempre filtrar por INBOX para não mostrar as próprias respostas enviadas (SENT)
+    gmail_query = "in:inbox"
+    if query and query.strip():
+        gmail_query = f"{gmail_query} {query.strip()}"
+
     # 1. Coletar IDs em lotes de 500 até ter o suficiente para a página solicitada
     all_ids: list[dict] = []
     next_token: Optional[str] = None
@@ -242,7 +248,7 @@ def list_messages_paginated(
         list_params: dict = {
             "userId": "me",
             "maxResults": 500,
-            "q": query or None,
+            "q": gmail_query,
         }
         if next_token:
             list_params["pageToken"] = next_token

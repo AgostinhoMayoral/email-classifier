@@ -74,6 +74,7 @@ class ClassificationResult(BaseModel):
     confidence: float
     suggested_response: str
     processed_text: str
+    ai_used: bool = True  # True se a resposta foi gerada pela IA (não template)
 
 
 class SendBatchRequest(BaseModel):

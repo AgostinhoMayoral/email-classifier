@@ -7,6 +7,7 @@ interface ClassificationResult {
   confidence: number;
   suggested_response: string;
   processed_text?: string;
+  ai_used?: boolean;  // true = gerado pela IA, false = template de fallback
 }
 
 interface GmailMessage {
@@ -749,10 +750,15 @@ export default function Home() {
                       {isProdutivo ? <><span className="w-2 h-2 rounded-full bg-emerald-400" />Produtivo</> : <><span className="w-2 h-2 rounded-full bg-amber-400" />Improdutivo</>}
                     </span>
                     <span className="text-slate-500 text-sm">{Math.round(result.confidence * 100)}% confiança</span>
+                    {result.ai_used === false && (
+                      <span className="text-amber-400/90 text-xs px-2 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30" title="IA indisponível - resposta de template">
+                        Template
+                      </span>
+                    )}
                   </div>
 
                   <div>
-                    <p className="text-sm font-medium text-slate-500 mb-3">Resposta sugerida</p>
+                    <p className="text-sm font-medium text-slate-500 mb-3">Resposta sugerida {result.ai_used !== false ? "(IA)" : "(template)"}</p>
                     <div className="p-4 rounded-xl bg-slate-800/50 border border-slate-700">
                       <p className="text-slate-300 whitespace-pre-wrap leading-relaxed">{result.suggested_response}</p>
                     </div>
@@ -842,14 +848,17 @@ export default function Home() {
                 </div>
               </div>
               <div className="flex-1 overflow-y-auto p-6 space-y-5">
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 flex-wrap">
                   <span className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm ${isProdutivo ? "bg-emerald-500/20 text-emerald-400 ring-1 ring-emerald-500/30" : "bg-amber-500/20 text-amber-400 ring-1 ring-amber-500/30"}`}>
                     {isProdutivo ? <><span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />Produtivo</> : <><span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse" />Improdutivo</>}
                   </span>
                   <span className="text-slate-500 text-sm">{Math.round(result.confidence * 100)}% de confiança</span>
+                  {result.ai_used === false && (
+                    <span className="text-amber-400/90 text-xs px-2 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30">Template (IA indisponível)</span>
+                  )}
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-slate-400 mb-2">Resposta sugerida pela IA</p>
+                  <p className="text-sm font-medium text-slate-400 mb-2">Resposta sugerida {result.ai_used !== false ? "pela IA" : "(template)"}</p>
                   <div className="p-4 rounded-xl bg-slate-800/80 border border-slate-600/80">
                     <p className="text-slate-200 whitespace-pre-wrap leading-relaxed text-[15px]">{result.suggested_response}</p>
                   </div>

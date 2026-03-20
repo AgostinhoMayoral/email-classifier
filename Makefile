@@ -3,7 +3,7 @@
 
 .DEFAULT_GOAL := help
 
-.PHONY: help up down backend frontend dev install setup venv logs status clean
+.PHONY: help up down backend frontend dev install setup venv logs status clean test
 
 # Cria venv se não existir
 venv:
@@ -37,6 +37,7 @@ help:
 	@echo "  make logs      - Ver logs do PostgreSQL"
 	@echo "  make status    - Verifica status dos serviços"
 	@echo "  make clean     - Limpa cache e artefatos"
+	@echo "  make test      - Executa testes do backend"
 	@echo ""
 
 # Docker / Banco
@@ -112,6 +113,12 @@ status:
 	@echo ""
 	@(curl -s -o /dev/null -w "  API (8000): %{http_code}\n" http://localhost:8000/docs 2>/dev/null) || echo "  API (8000): offline"
 	@(curl -s -o /dev/null -w "  Frontend (3000): %{http_code}\n" http://localhost:3000 2>/dev/null) || echo "  Frontend (3000): offline"
+
+# Testes (usa SQLite em memória)
+test:
+	@echo "$(YELLOW)Executando testes...$(NC)"
+	cd backend && USE_SQLITE=1 DISABLE_JOB_SCHEDULER=1 $(BACKEND_PY) -m pytest tests/ -v
+	@echo "$(GREEN)Testes concluídos!$(NC)"
 
 # Limpeza
 clean:
