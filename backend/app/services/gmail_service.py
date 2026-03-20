@@ -14,7 +14,7 @@ logger = logging.getLogger("gmail_service")
 import base64
 import re
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Set
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import Flow
@@ -205,12 +205,12 @@ def get_user_info() -> Optional[dict]:
 MAX_MESSAGES_FETCH = 5000
 
 
-def list_messages(max_results: int = 20, query: str = "") -> list[dict]:
+def list_messages(max_results: int = 20, query: str = "", exclude_ids: Optional[Set[str]] = None) -> list[dict]:
     """
     Lista mensagens da caixa de entrada (compatibilidade).
     Para paginação completa, use list_messages_paginated.
     """
-    msgs, _ = list_messages_paginated(page=1, per_page=max_results, query=query)
+    msgs, _ = list_messages_paginated(page=1, per_page=max_results, query=query, exclude_ids=exclude_ids)
     return msgs
 
 
@@ -218,11 +218,12 @@ def list_messages_paginated(
     page: int = 1,
     per_page: int = 50,
     query: str = "",
+    exclude_ids: Optional[Set[str]] = None,
 ) -> tuple[list[dict], int]:
     """
     Lista mensagens do Gmail com paginação real via pageToken.
     Busca apenas mensagens da caixa de entrada (INBOX), excluindo as enviadas pelo usuário.
-    Busca todas as mensagens necessárias (até MAX_MESSAGES_FETCH) e retorna a página solicitada.
+    Se exclude_ids for informado, filtra mensagens já respondidas (não aparecem na lista).
 
     Returns:
         (messages, total) - lista de mensagens da página e total estimado
@@ -233,18 +234,22 @@ def list_messages_paginated(
 
     service = build("gmail", "v1", credentials=creds)
 
-    # Sempre filtrar por INBOX para não mostrar as próprias respostas enviadas (SENT)
-    gmail_query = "in:inbox"
+    # Apenas mensagens RECEBIDAS: INBOX + excluir as que NÓS enviamos (-from:me)
+    # Crítico: não podemos responder ao que nós mesmos respondemos
+    gmail_query = "in:inbox -from:me"
     if query and query.strip():
         gmail_query = f"{gmail_query} {query.strip()}"
 
-    # 1. Coletar IDs em lotes de 500 até ter o suficiente para a página solicitada
+    exclude = exclude_ids or set()
+    needed_count = page * per_page
+
+    # 1. Coletar IDs em lotes, filtrando exclude_ids até ter o suficiente para a página
     all_ids: list[dict] = []
+    all_ids_filtered: list[dict] = []
     next_token: Optional[str] = None
     total_estimate = 0
 
-    needed_count = page * per_page
-    while len(all_ids) < needed_count and len(all_ids) < MAX_MESSAGES_FETCH:
+    while len(all_ids_filtered) < needed_count and len(all_ids) < MAX_MESSAGES_FETCH:
         list_params: dict = {
             "userId": "me",
             "maxResults": 500,
@@ -264,16 +269,20 @@ def list_messages_paginated(
         all_ids.extend(batch)
         total_estimate = results.get("resultSizeEstimate", len(all_ids))
 
+        for m in batch:
+            if m.get("id") and m["id"] not in exclude:
+                all_ids_filtered.append(m)
+
         next_token = results.get("nextPageToken")
         if not next_token or not batch:
             break
 
-    total = max(total_estimate, len(all_ids))
+    total = max(total_estimate, len(all_ids_filtered))
 
-    # 2. Pegar o slice de IDs para a página atual
+    # 2. Pegar o slice de IDs para a página atual (apenas não respondidos)
     start = (page - 1) * per_page
     end = start + per_page
-    ids_for_page = [m["id"] for m in all_ids[start:end]]
+    ids_for_page = [m["id"] for m in all_ids_filtered[start:end]]
 
     # 3. Buscar metadados apenas dos emails da página
     result = []

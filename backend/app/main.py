@@ -255,20 +255,23 @@ async def list_emails(
             gmail_query_parts.append(f"before:{dt_adj.strftime('%Y/%m/%d')}")
         gmail_query = " ".join(gmail_query_parts) if gmail_query_parts else ""
 
-        # Buscar do Gmail com paginação real (pageToken) - acessa todas as mensagens
+        # IDs já respondidos: não mostrar na lista (só mensagens que precisam de resposta)
+        sent_ids = email_repository.get_all_sent_gmail_ids(db)
+
+        # Buscar do Gmail com paginação - exclui automaticamente os já respondidos
         messages, total = gmail_service.list_messages_paginated(
             page=page,
             per_page=per_page,
             query=gmail_query or None,
+            exclude_ids=sent_ids,
         )
 
-        # IDs já enviados (evitar duplicados)
+        # Enriquecer com dados do DB (record_id, status, classification)
         gmail_ids = [m["id"] for m in messages]
-        sent_ids = email_repository.get_ids_already_sent(db, gmail_ids)
+        sent_ids_page = email_repository.get_ids_already_sent(db, gmail_ids)
 
-        # Enriquecer com dados do DB
         for m in messages:
-            m["already_sent"] = m["id"] in sent_ids
+            m["already_sent"] = m["id"] in sent_ids_page
             record = email_repository.get_by_gmail_id(db, m["id"])
             if record:
                 m["record_id"] = record.id

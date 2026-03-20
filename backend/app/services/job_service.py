@@ -45,11 +45,12 @@ def run_daily_job(
     if not date_to:
         date_to = datetime.utcnow()
 
-    # Query Gmail com filtro de data
+    # Query Gmail com filtro de data (exclui já respondidos)
     after_str = date_from.strftime("%Y/%m/%d")
     before_str = date_to.strftime("%Y/%m/%d")
     query = f"after:{after_str} before:{before_str}"
-    messages = gmail_service.list_messages(max_results=max_emails, query=query)
+    sent_ids = email_repository.get_all_sent_gmail_ids(db)
+    messages = gmail_service.list_messages(max_results=max_emails, query=query, exclude_ids=sent_ids)
 
     classified_count = 0
     sent_count = 0

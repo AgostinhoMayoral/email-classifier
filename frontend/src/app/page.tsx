@@ -25,6 +25,18 @@ interface GmailMessage {
   suggested_response?: string | null;
 }
 
+interface SentRecord {
+  id: number;
+  gmail_message_id: string;
+  subject: string;
+  sender: string;
+  snippet: string | null;
+  received_at: string | null;
+  status: string;
+  category?: string | null;
+  suggested_response?: string | null;
+}
+
 interface Pagination {
   page: number;
   per_page: number;
@@ -70,6 +82,17 @@ export default function Home() {
   const [sendLoading, setSendLoading] = useState(false);
   const [sendResult, setSendResult] = useState<{ sent: number; skipped: number; errors: { gmail_id: string; error: string }[] } | null>(null);
   const [pagination, setPagination] = useState<Pagination | null>(null);
+
+  // Sub-tab Gmail: pendentes vs enviados
+  const [gmailSubTab, setGmailSubTab] = useState<"pending" | "sent">("pending");
+  const [sentEmails, setSentEmails] = useState<SentRecord[]>([]);
+  const [sentLoading, setSentLoading] = useState(false);
+  const [sentPage, setSentPage] = useState(1);
+  const [sentPerPage, setSentPerPage] = useState(10);
+  const [sentPagination, setSentPagination] = useState<Pagination | null>(null);
+  const [sentDateFrom, setSentDateFrom] = useState("");
+  const [sentDateTo, setSentDateTo] = useState("");
+  const [expandedSentId, setExpandedSentId] = useState<number | null>(null);
 
   const [jobConfigOpen, setJobConfigOpen] = useState(false);
   const [jobConfig, setJobConfig] = useState<{
@@ -188,9 +211,35 @@ export default function Home() {
       .finally(() => setEmailsLoading(false));
   }, [gmailAuth, page, perPage, dateFrom, dateTo]);
 
+  const fetchSentEmails = useCallback(() => {
+    setSentLoading(true);
+    setError(null);
+    const params = new URLSearchParams();
+    params.set("page", String(sentPage));
+    params.set("per_page", String(sentPerPage));
+    params.set("status", "sent");
+    if (sentDateFrom) params.set("date_from", sentDateFrom);
+    if (sentDateTo) params.set("date_to", sentDateTo);
+    fetch(`${API_URL}/api/emails/records?${params}`)
+      .then((r) => {
+        if (!r.ok) throw new Error("Erro ao buscar enviados");
+        return r.json();
+      })
+      .then((data) => {
+        setSentEmails(data.emails || []);
+        setSentPagination(data.pagination || null);
+      })
+      .catch((err) => setError(err.message))
+      .finally(() => setSentLoading(false));
+  }, [sentPage, sentPerPage, sentDateFrom, sentDateTo]);
+
   useEffect(() => {
     if (gmailAuth && activeTab === "gmail") fetchEmails();
   }, [gmailAuth, activeTab, fetchEmails]);
+
+  useEffect(() => {
+    if (activeTab === "gmail" && gmailSubTab === "sent") fetchSentEmails();
+  }, [activeTab, gmailSubTab, fetchSentEmails]);
 
   const handleClassifyGmailEmail = async (messageId: string) => {
     setClassifyLoading(true);
@@ -244,6 +293,7 @@ export default function Home() {
       setSendResult(data);
       setSelectedIds(new Set());
       fetchEmails();
+      fetchSentEmails();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao enviar");
     } finally {
@@ -524,7 +574,30 @@ export default function Home() {
 
                   <div className="flex flex-wrap items-center justify-between gap-4">
                     <h3 className="text-lg font-semibold text-slate-300">Emails do Gmail</h3>
-                    <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex gap-1 p-1 rounded-lg bg-slate-800/50 border border-slate-700">
+                      <button
+                        type="button"
+                        onClick={() => { setGmailSubTab("pending"); setError(null); }}
+                        className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
+                          gmailSubTab === "pending" ? "bg-cyan-600 text-white" : "text-slate-400 hover:text-slate-200 hover:bg-slate-700/50"
+                        }`}
+                      >
+                        A responder
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setGmailSubTab("sent"); setError(null); fetchSentEmails(); }}
+                        className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
+                          gmailSubTab === "sent" ? "bg-emerald-600 text-white" : "text-slate-400 hover:text-slate-200 hover:bg-slate-700/50"
+                        }`}
+                      >
+                        Enviados
+                      </button>
+                    </div>
+                  </div>
+
+                  {gmailSubTab === "pending" && (
+                    <div className="flex flex-wrap items-center justify-end gap-3">
                       <div className="flex items-center gap-2">
                         <label className="text-sm text-slate-500">De</label>
                         <input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(1); }} className="px-3 py-1.5 rounded-lg bg-slate-800/50 border border-slate-600 text-sm" />
@@ -537,9 +610,25 @@ export default function Home() {
                         {emailsLoading ? "Carregando..." : "Buscar"}
                       </button>
                     </div>
-                  </div>
+                  )}
 
-                  {selectedIds.size > 0 && (
+                  {gmailSubTab === "sent" && (
+                    <div className="flex flex-wrap items-center justify-end gap-3">
+                      <div className="flex items-center gap-2">
+                        <label className="text-sm text-slate-500">De</label>
+                        <input type="date" value={sentDateFrom} onChange={(e) => { setSentDateFrom(e.target.value); setSentPage(1); }} className="px-3 py-1.5 rounded-lg bg-slate-800/50 border border-slate-600 text-sm" />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <label className="text-sm text-slate-500">Até</label>
+                        <input type="date" value={sentDateTo} onChange={(e) => { setSentDateTo(e.target.value); setSentPage(1); }} className="px-3 py-1.5 rounded-lg bg-slate-800/50 border border-slate-600 text-sm" />
+                      </div>
+                      <button type="button" onClick={fetchSentEmails} disabled={sentLoading} className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-sm font-medium transition-colors">
+                        {sentLoading ? "Carregando..." : "Buscar"}
+                      </button>
+                    </div>
+                  )}
+
+                  {gmailSubTab === "pending" && selectedIds.size > 0 && (
                     <div className="flex items-center justify-between p-4 rounded-xl bg-cyan-500/10 border border-cyan-500/30">
                       <span className="text-sm text-slate-300">{selectedIds.size} email(s) selecionado(s)</span>
                       <button
@@ -554,7 +643,7 @@ export default function Home() {
                     </div>
                   )}
 
-                  {sendResult && (
+                  {gmailSubTab === "pending" && sendResult && (
                     <div className={`p-4 rounded-xl border text-sm animate-fade-in ${sendResult.errors?.length ? "bg-amber-500/10 border-amber-500/30" : "bg-emerald-500/10 border-emerald-500/30"}`}>
                       <div className="text-slate-300">Enviados: {sendResult.sent} | Ignorados: {sendResult.skipped}{sendResult.errors?.length > 0 && <span className="text-amber-400 ml-2">| Erros: {sendResult.errors.length}</span>}</div>
                       {sendResult.errors?.length > 0 && (
@@ -573,43 +662,44 @@ export default function Home() {
                   )}
 
                   <div className="rounded-2xl border border-[var(--card-border)] bg-[var(--card)] overflow-hidden">
-                    {emailsLoading ? (
-                      <div className="p-8 text-center text-slate-500">Carregando emails...</div>
-                    ) : emails.length === 0 ? (
-                      <div className="p-8 text-center text-slate-500">Nenhum email encontrado.</div>
-                    ) : (
+                    {gmailSubTab === "pending" ? (
                       <>
-                        <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-700 bg-slate-800/30">
-                          <input type="checkbox" checked={canSendCount > 0 && selectedIds.size === canSendCount} onChange={toggleSelectAll} className="rounded border-slate-600" />
-                          <span className="text-sm text-slate-400">Selecionar todos ({canSendCount} disponíveis)</span>
-                        </div>
-                        <ul className="divide-y divide-slate-700 max-h-[400px] overflow-y-auto">
-                          {emails.map((msg) => (
-                            <li key={msg.id} className={`hover:bg-slate-800/30 transition-colors ${msg.already_sent ? "opacity-60" : ""}`}>
-                              <div className="flex items-start gap-3 px-4 py-3">
-                                {!msg.already_sent && (
-                                  <input type="checkbox" checked={selectedIds.has(msg.id)} onChange={() => toggleSelect(msg.id)} className="mt-1 rounded border-slate-600" />
-                                )}
-                                <button type="button" onClick={() => handleClassifyGmailEmail(msg.id)} disabled={classifyLoading} className="flex-1 text-left min-w-0 disabled:opacity-50">
-                                  <div className="flex items-start justify-between gap-2">
-                                    <div className="min-w-0 flex-1">
-                                      <div className="flex items-center gap-2 flex-wrap">
-                                        <p className="font-medium text-slate-200 truncate">{msg.subject}</p>
-                                        {msg.already_sent && <span className="text-xs px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400">Enviado</span>}
-                                        {msg.category && !msg.already_sent && (
-                                          <span className={`text-xs px-2 py-0.5 rounded ${msg.category === "Produtivo" ? "bg-emerald-500/20 text-emerald-400" : "bg-amber-500/20 text-amber-400"}`}>{msg.category}</span>
-                                        )}
+                        {emailsLoading ? (
+                          <div className="p-8 text-center text-slate-500">Carregando emails...</div>
+                        ) : emails.length === 0 ? (
+                          <div className="p-8 text-center text-slate-500">Nenhum email para responder.</div>
+                        ) : (
+                          <>
+                            <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-700 bg-slate-800/30">
+                              <input type="checkbox" checked={canSendCount > 0 && selectedIds.size === canSendCount} onChange={toggleSelectAll} className="rounded border-slate-600" />
+                              <span className="text-sm text-slate-400">Selecionar todos ({canSendCount} disponíveis)</span>
+                            </div>
+                            <ul className="divide-y divide-slate-700 max-h-[400px] overflow-y-auto">
+                              {emails.map((msg) => (
+                                <li key={msg.id} className="hover:bg-slate-800/30 transition-colors">
+                                  <div className="flex items-start gap-3 px-4 py-3">
+                                    <input type="checkbox" checked={selectedIds.has(msg.id)} onChange={() => toggleSelect(msg.id)} className="mt-1 rounded border-slate-600" />
+                                    <button type="button" onClick={() => handleClassifyGmailEmail(msg.id)} disabled={classifyLoading} className="flex-1 text-left min-w-0 disabled:opacity-50">
+                                      <div className="flex items-start justify-between gap-2">
+                                        <div className="min-w-0 flex-1">
+                                          <div className="flex items-center gap-2 flex-wrap">
+                                            <p className="font-medium text-slate-200 truncate">{msg.subject}</p>
+                                            {msg.category && (
+                                              <span className={`text-xs px-2 py-0.5 rounded ${msg.category === "Produtivo" ? "bg-emerald-500/20 text-emerald-400" : "bg-amber-500/20 text-amber-400"}`}>{msg.category}</span>
+                                            )}
+                                          </div>
+                                          <p className="text-sm text-slate-500 truncate">{msg.from}</p>
+                                          <p className="text-xs text-slate-600 mt-0.5 line-clamp-2">{msg.snippet}</p>
+                                        </div>
+                                        <span className="text-xs text-slate-500 shrink-0">{msg.date}</span>
                                       </div>
-                                      <p className="text-sm text-slate-500 truncate">{msg.from}</p>
-                                      <p className="text-xs text-slate-600 mt-0.5 line-clamp-2">{msg.snippet}</p>
-                                    </div>
-                                    <span className="text-xs text-slate-500 shrink-0">{msg.date}</span>
+                                    </button>
                                   </div>
-                                </button>
-                              </div>
-                            </li>
-                          ))}
-                        </ul>
+                                </li>
+                              ))}
+                            </ul>
+                          </>
+                        )}
                         {pagination && (
                           <div className="flex flex-wrap items-center justify-between gap-4 px-4 py-3 border-t border-slate-700 bg-slate-800/30">
                             <div className="flex items-center gap-4">
@@ -673,9 +763,93 @@ export default function Home() {
                           </div>
                         )}
                       </>
+                    ) : (
+                      <>
+                        {sentLoading ? (
+                          <div className="p-8 text-center text-slate-500">Carregando enviados...</div>
+                        ) : sentEmails.length === 0 ? (
+                          <div className="p-8 text-center text-slate-500">Nenhuma resposta enviada ainda.</div>
+                        ) : (
+                          <>
+                            <div className="px-4 py-3 border-b border-slate-700 bg-emerald-500/10">
+                              <span className="text-sm text-emerald-400 font-medium">Respostas enviadas com sucesso</span>
+                            </div>
+                            <ul className="divide-y divide-slate-700 max-h-[400px] overflow-y-auto">
+                              {sentEmails.map((rec) => (
+                                <li key={rec.id} className="hover:bg-slate-800/30 transition-colors">
+                                  <div className="px-4 py-3">
+                                    <button
+                                      type="button"
+                                      onClick={() => setExpandedSentId(expandedSentId === rec.id ? null : rec.id)}
+                                      className="w-full text-left"
+                                    >
+                                      <div className="flex items-start justify-between gap-2">
+                                        <div className="min-w-0 flex-1">
+                                          <div className="flex items-center gap-2 flex-wrap">
+                                            <p className="font-medium text-slate-200 truncate">{rec.subject}</p>
+                                            <span className="text-xs px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 shrink-0">Enviado</span>
+                                            {rec.category && (
+                                              <span className={`text-xs px-2 py-0.5 rounded ${rec.category === "Produtivo" ? "bg-emerald-500/20 text-emerald-400" : "bg-amber-500/20 text-amber-400"}`}>{rec.category}</span>
+                                            )}
+                                          </div>
+                                          <p className="text-sm text-slate-500 truncate">{rec.sender}</p>
+                                          {rec.snippet && <p className="text-xs text-slate-600 mt-0.5 line-clamp-2">{rec.snippet}</p>}
+                                        </div>
+                                        <span className="text-xs text-slate-500 shrink-0">
+                                          {rec.received_at ? new Date(rec.received_at).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" }) : ""}
+                                        </span>
+                                      </div>
+                                      {expandedSentId === rec.id && rec.suggested_response && (
+                                        <div className="mt-3 p-3 rounded-lg bg-slate-800/50 border border-slate-600 text-sm text-slate-300 whitespace-pre-wrap" onClick={(e) => e.stopPropagation()}>
+                                          <p className="text-xs text-slate-500 mb-2 font-medium">Resposta enviada:</p>
+                                          {rec.suggested_response}
+                                        </div>
+                                      )}
+                                    </button>
+                                  </div>
+                                </li>
+                              ))}
+                            </ul>
+                            {sentPagination && (
+                              <div className="flex flex-wrap items-center justify-between gap-4 px-4 py-3 border-t border-slate-700 bg-slate-800/30">
+                                <div className="flex items-center gap-4">
+                                  <span className="text-sm text-slate-400">
+                                    {sentPagination.total} enviado{sentPagination.total !== 1 ? "s" : ""} · Página {sentPagination.page} de {sentPagination.total_pages}
+                                  </span>
+                                  <div className="flex items-center gap-2">
+                                    <label htmlFor="sent-per-page" className="text-xs text-slate-500">Por página</label>
+                                    <select id="sent-per-page" value={sentPerPage} onChange={(e) => { setSentPerPage(Number(e.target.value)); setSentPage(1); }} className="px-2 py-1.5 rounded-lg bg-slate-800/50 border border-slate-600 text-sm text-slate-300 focus:outline-none focus:ring-1 focus:ring-cyan-500/50">
+                                      <option value={10}>10</option>
+                                      <option value={25}>25</option>
+                                      <option value={50}>50</option>
+                                    </select>
+                                  </div>
+                                </div>
+                                <nav className="flex items-center gap-1" aria-label="Navegação enviados">
+                                  <button type="button" onClick={() => setSentPage(1)} disabled={sentPage <= 1} className="p-2 rounded-lg border border-slate-600 hover:bg-slate-700/50 disabled:opacity-40 disabled:cursor-not-allowed">
+                                    <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" /></svg>
+                                  </button>
+                                  <button type="button" onClick={() => setSentPage((p) => Math.max(1, p - 1))} disabled={sentPage <= 1} className="p-2 rounded-lg border border-slate-600 hover:bg-slate-700/50 disabled:opacity-40 disabled:cursor-not-allowed">
+                                    <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+                                  </button>
+                                  <span className="px-3 py-1.5 text-sm font-medium text-slate-300 min-w-[4rem] text-center">{sentPage} / {sentPagination.total_pages}</span>
+                                  <button type="button" onClick={() => setSentPage((p) => Math.min(sentPagination.total_pages, p + 1))} disabled={sentPage >= sentPagination.total_pages} className="p-2 rounded-lg border border-slate-600 hover:bg-slate-700/50 disabled:opacity-40 disabled:cursor-not-allowed">
+                                    <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                                  </button>
+                                  <button type="button" onClick={() => setSentPage(sentPagination.total_pages)} disabled={sentPage >= sentPagination.total_pages} className="p-2 rounded-lg border border-slate-600 hover:bg-slate-700/50 disabled:opacity-40 disabled:cursor-not-allowed">
+                                    <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" /></svg>
+                                  </button>
+                                </nav>
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </>
                     )}
                   </div>
-                  <p className="text-sm text-slate-500">Clique em um email para classificar. Selecione e envie as respostas em lote.</p>
+                  <p className="text-sm text-slate-500">
+                    {gmailSubTab === "pending" ? "Clique em um email para classificar. Selecione e envie as respostas em lote." : "Clique em um item para ver a resposta enviada."}
+                  </p>
                 </>
               )}
             </section>

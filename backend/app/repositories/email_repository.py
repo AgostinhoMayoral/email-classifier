@@ -149,11 +149,19 @@ def mark_as_failed(db: Session, email_record_id: int) -> None:
 
 
 def get_ids_already_sent(db: Session, gmail_ids: list[str]) -> set[str]:
-    """Retorna set de gmail_message_ids que já foram enviados."""
+    """Retorna set de gmail_message_ids que já foram enviados (do conjunto informado)."""
     if not gmail_ids:
         return set()
     rows = db.query(EmailRecord.gmail_message_id).filter(
         EmailRecord.gmail_message_id.in_(gmail_ids),
+        EmailRecord.status == EmailStatus.SENT,
+    ).all()
+    return {r[0] for r in rows if r[0]}
+
+
+def get_all_sent_gmail_ids(db: Session) -> set[str]:
+    """Retorna todos os gmail_message_ids que já foram respondidos (para excluir da lista)."""
+    rows = db.query(EmailRecord.gmail_message_id).filter(
         EmailRecord.status == EmailStatus.SENT,
     ).all()
     return {r[0] for r in rows if r[0]}
