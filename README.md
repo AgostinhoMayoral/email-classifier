@@ -143,7 +143,7 @@ Para leitura automática de emails do Gmail, siga o guia [GMAIL_SETUP.md](./GMAI
 
 ### Alternativas
 
-- **Backend**: Railway, Fly.io, Google Cloud Run, AWS Lambda
+- **Backend**: Render, Railway, Fly.io, Google Cloud Run, AWS Lambda
 - **Frontend**: Netlify, Cloudflare Pages
 
 ## Tecnologias

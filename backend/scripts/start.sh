@@ -1,5 +1,5 @@
 #!/bin/sh
-# Script de startup para Railway (e outros PaaS).
+# Script de startup para Render, Railway e outros PaaS.
 # Cria credentials.json a partir de GOOGLE_CREDENTIALS_JSON se definido.
 set -e
 

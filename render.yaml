@@ -1,0 +1,31 @@
+# Blueprint para deploy do backend no Render.com
+# https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    runtime: python
+    name: email-classifier-api
+    rootDir: backend
+
+    buildCommand: pip install -r requirements.txt
+    startCommand: sh scripts/start.sh
+
+    plan: free
+
+    healthCheckPath: /health
+
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: HF_TOKEN
+        sync: false
+      - key: API_BASE_URL
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: GOOGLE_CREDENTIALS_JSON
+        sync: false
+      - key: USER_NAME
+        sync: false
+      - key: DISABLE_JOB_SCHEDULER
+        sync: false
