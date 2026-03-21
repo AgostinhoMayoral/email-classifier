@@ -4,21 +4,24 @@
 
 | Componente | Serviço   | URL (exemplo)                    |
 |------------|-----------|-----------------------------------|
-| **Banco de dados** | Supabase  | `postgresql://...@db.xxx.supabase.co:5432/postgres` |
+| **Banco de dados** | Supabase  | `postgresql://...@pooler.supabase.com:6543/postgres` |
 | **Backend**        | Render    | `https://seu-projeto.onrender.com` |
 | **Frontend**       | Vercel    | `https://seu-projeto.vercel.app`     |
 
 ---
 
-## Ordem de execução
+## Fluxo de deploy (ordem correta)
 
-Siga os passos **nesta ordem**, pois cada etapa depende da anterior.
+As variáveis de ambiente dependem umas das outras. Siga **exatamente** esta ordem:
 
-1. [Supabase](#1-supabase---banco-de-dados) – criar projeto e obter `DATABASE_URL`
-2. [Google Cloud](#2-google-cloud---gmail-oauth) – configurar URIs de produção
-3. [Render](#3-render---backend) – deploy do backend
-4. [Vercel](#4-vercel---frontend) – deploy do frontend
-5. [Testar](#5-testar-o-deploy) – validar integração
+| Etapa | O que fazer | Variáveis que você já tem |
+|-------|--------------|---------------------------|
+| **1** | [Supabase](#1-supabase---banco-de-dados) | `DATABASE_URL` |
+| **2** | [Render – 1º deploy](#3-render---backend) | `DATABASE_URL`, `HF_TOKEN`, `GOOGLE_CREDENTIALS_JSON` |
+| **3** | Obter URL do Render e [Google Cloud](#2-google-cloud---gmail-oauth) | `API_BASE_URL` (URL do Render) |
+| **4** | [Vercel – frontend](#4-vercel---frontend) | `NEXT_PUBLIC_API_URL` = URL do Render |
+| **5** | Atualizar Render com URL do Vercel | `FRONTEND_URL` (URL do Vercel) |
+| **6** | [Testar](#5-testar-o-deploy) | — |
 
 ---
 
@@ -56,7 +59,7 @@ Guarde essa URL – você usará como `DATABASE_URL` no Render.
 
 ## 2. Google Cloud – Gmail OAuth
 
-Antes do deploy, configure as URIs de redirecionamento para produção.
+**Faça isso após o 1º deploy no Render** (quando você tiver a URL do backend).
 
 ### 2.1 Adicionar URI de produção
 
@@ -66,86 +69,70 @@ Antes do deploy, configure as URIs de redirecionamento para produção.
 4. Clique no **ID do cliente OAuth** que você usa
 5. Em **URIs de redirecionamento autorizados**, adicione:
    ```
-   https://SEU-BACKEND-RENDER.onrender.com/api/auth/gmail/callback
+   https://SUA-URL-RENDER.onrender.com/api/auth/gmail/callback
    ```
-   *(Substitua pela URL real do backend no Render – você terá essa URL após o deploy no passo 3.)*
+   *(Use a URL real do backend no Render – obtida no passo 3.3)*
 
 6. Clique em **Salvar**
-
-> **Dica**: Se ainda não tiver a URL do Render, você pode voltar aqui depois do passo 3 e adicionar.
 
 ---
 
 ## 3. Render – Backend
 
-### 3.1 Criar projeto via Blueprint
+### 3.1 Criar serviço (manual ou Blueprint)
 
-1. Acesse [render.com](https://render.com) e crie uma conta (ou faça login com GitHub)
-2. No dashboard, clique em **New** → **Blueprint**
-3. Conecte o repositório do projeto (se ainda não conectou)
-4. O Render detectará o `render.yaml` na raiz do repositório
-5. Clique em **Apply** – o Render criará o serviço web com a configuração do blueprint
-
-> O `render.yaml` já define `rootDir: backend`, `buildCommand`, `startCommand` e `healthCheckPath`. As variáveis com `sync: false` precisarão ser preenchidas no passo 3.3.
-
-### 3.2 Configuração alternativa (sem Blueprint)
-
-Se preferir criar manualmente:
-
+**Opção A – Manual:**
 1. Clique em **New** → **Web Service**
 2. Conecte o repositório e selecione o projeto
 3. Configure:
    - **Root Directory**: `backend`
    - **Runtime**: Python 3
-   - **Build Command**: `pip install -r requirements.txt`
-   - **Start Command**: `sh scripts/start.sh`
+   - **Build Command**: `pip install -r requirements.txt` *(apenas o comando, sem prefixos)*
+   - **Start Command**: `sh scripts/start.sh` *(não use `python scripts/start.sh` – é um script shell)*
 
-### 3.3 Variáveis de ambiente
+**Opção B – Blueprint:** New → Blueprint, conecte o repo, Apply (usa `render.yaml`).
 
-No Render, vá em **Environment** e adicione:
+### 3.2 Variáveis para o 1º deploy
 
-| Variável | Obrigatório | Descrição |
-|----------|-------------|-----------|
-| `DATABASE_URL` | ✅ | URL do Supabase (passo 1.2) |
-| `HF_TOKEN` ou `HUGGINGFACE_TOKEN` | ✅ | Token do [Hugging Face](https://huggingface.co/settings/tokens) (Inference) |
-| `API_BASE_URL` | ✅ | URL do backend no Render (ex: `https://xxx.onrender.com`) |
-| `FRONTEND_URL` | ✅ | URL do frontend na Vercel (ex: `https://xxx.vercel.app`) |
-| `GOOGLE_CREDENTIALS_JSON` | ✅ | Conteúdo completo do `credentials.json` (JSON em uma linha) |
-| `USER_NAME` | ⚪ | Seu nome para assinatura (quando Gmail não conectado) |
-| `DISABLE_JOB_SCHEDULER` | ⚪ | `1` para desabilitar o job diário (opcional) |
+No **1º deploy** você ainda **não tem** a URL do Vercel. Adicione apenas:
 
-O script `scripts/start.sh` cria o `credentials.json` a partir de `GOOGLE_CREDENTIALS_JSON` antes de iniciar o servidor.
+| Variável | Valor | Quando preencher |
+|----------|-------|------------------|
+| `DATABASE_URL` | URL do Supabase (pooler, porta 6543) | Agora |
+| `HF_TOKEN` | Token do [Hugging Face](https://huggingface.co/settings/tokens) | Agora |
+| `GOOGLE_CREDENTIALS_JSON` | Conteúdo completo do `credentials.json` | Agora |
+| `API_BASE_URL` | *(deixe em branco no 1º deploy)* | Após o deploy (3.3) |
+| `FRONTEND_URL` | *(deixe em branco no 1º deploy)* | Após o deploy do Vercel (4.5) |
+| `USER_NAME` | ⚪ Opcional | — |
+| `DISABLE_JOB_SCHEDULER` | ⚪ `1` para desabilitar job diário | — |
 
-### 3.4 Obter a URL do serviço
+> O backend usa `API_BASE_URL` default `http://localhost:8000` e `FRONTEND_URL` default `http://localhost:3000` se não definidos. O Gmail OAuth **só funcionará** depois de atualizar com as URLs reais.
 
-1. Após o primeiro deploy, o Render gera uma URL automática (ex: `https://email-classifier-api.onrender.com`)
-2. Copie essa URL (sem barra no final)
+### 3.3 Após o 1º deploy – obter URL e atualizar
 
-### 3.5 Atualizar variáveis com a URL real
-
-Com a URL do Render em mãos:
-
-1. Atualize `API_BASE_URL` com essa URL (sem barra no final)
-2. Volte ao [Google Cloud](#2-google-cloud---gmail-oauth) e adicione a URI de callback:
+1. Aguarde o deploy terminar
+2. No Render, copie a URL do serviço (ex: `https://email-classifier.onrender.com`)
+3. Em **Environment**, adicione/atualize:
+   - `API_BASE_URL` = `https://sua-url.onrender.com` (sem barra no final)
+4. Clique em **Save Changes** – o Render fará redeploy
+5. Vá ao [Google Cloud](#2-google-cloud---gmail-oauth) e adicione a URI de callback:
    ```
-   https://SUA-URL-RENDER.onrender.com/api/auth/gmail/callback
+   https://sua-url.onrender.com/api/auth/gmail/callback
    ```
 
-### 3.6 Deploy
+### 3.4 Testar o backend
 
-1. Faça push no GitHub – o Render faz deploy automático (se configurado)
-2. Ou clique em **Manual Deploy** → **Deploy latest commit**
-3. Aguarde o build e o deploy
-4. Verifique os logs em **Logs**
-5. Teste: `https://SUA-URL-RENDER.onrender.com/health` deve retornar `{"status":"healthy"}`
+- Acesse `https://sua-url.onrender.com/health` → deve retornar `{"status":"healthy"}`
 
-### 3.7 Plano Free e cold start
+### 3.5 Plano Free e cold start
 
 No plano **Free**, o serviço entra em sleep após ~15 min de inatividade. A primeira requisição após o sleep pode levar 30–60 segundos (cold start). Para evitar isso, use o plano **Starter** ($7/mês).
 
 ---
 
 ## 4. Vercel – Frontend
+
+**Faça isso após o backend estar no ar** (você precisa da URL do Render para `NEXT_PUBLIC_API_URL`).
 
 ### 4.1 Criar projeto
 
@@ -163,23 +150,29 @@ No plano **Free**, o serviço entra em sleep após ~15 min de inatividade. A pri
 
 ### 4.3 Variáveis de ambiente
 
-Em **Environment Variables**, adicione:
+Em **Environment Variables**, adicione **antes** do deploy:
 
 | Variável | Valor | Ambiente |
 |----------|-------|----------|
 | `NEXT_PUBLIC_API_URL` | `https://SUA-URL-RENDER.onrender.com` | Production, Preview, Development |
 
-Use a URL do backend no Render (sem barra no final).
+Use a URL do backend no Render (sem barra no final). Sem isso, o frontend não conseguirá chamar a API.
 
 ### 4.4 Deploy
 
 1. Clique em **Deploy**
 2. Aguarde o build
-3. Copie a URL do projeto (ex: `https://test-controlar-emails.vercel.app`)
+3. Copie a URL do projeto (ex: `https://email-classifier.vercel.app`)
 
-### 4.5 Atualizar backend
+### 4.5 Atualizar backend (obrigatório para Gmail)
 
-No Render, atualize a variável `FRONTEND_URL` com a URL do Vercel (para o redirect do OAuth funcionar corretamente).
+No **Render**, vá em **Environment** e adicione/atualize:
+
+| Variável | Valor |
+|----------|-------|
+| `FRONTEND_URL` | `https://sua-url.vercel.app` (URL do Vercel, sem barra no final) |
+
+Clique em **Save Changes** – o Render fará redeploy. Sem isso, o redirect do Gmail OAuth não funcionará (o usuário seria redirecionado para localhost).
 
 ---
 
@@ -206,15 +199,14 @@ No Render, atualize a variável `FRONTEND_URL` com a URL do Vercel (para o redir
 
 ## 6. Checklist final
 
-- [ ] Supabase: projeto criado e `DATABASE_URL` obtida
-- [ ] Google Cloud: URI de callback de produção adicionada
-- [ ] Render: backend deployado, variáveis configuradas, URL gerada
-- [ ] Vercel: frontend deployado, `NEXT_PUBLIC_API_URL` configurada
-- [ ] `FRONTEND_URL` no Render apontando para a URL do Vercel
-- [ ] `API_BASE_URL` no Render com a URL do Render
-- [ ] Teste de health no backend
-- [ ] Teste de classificação no frontend
-- [ ] Teste de conexão Gmail
+- [ ] **1.** Supabase: projeto criado e `DATABASE_URL` obtida (pooler, porta 6543)
+- [ ] **2.** Render: 1º deploy com `DATABASE_URL`, `HF_TOKEN`, `GOOGLE_CREDENTIALS_JSON`
+- [ ] **3.** Render: `API_BASE_URL` atualizada com a URL do Render
+- [ ] **4.** Google Cloud: URI de callback `https://SUA-URL.onrender.com/api/auth/gmail/callback`
+- [ ] **5.** Vercel: deploy com `NEXT_PUBLIC_API_URL` = URL do Render
+- [ ] **6.** Render: `FRONTEND_URL` atualizada com a URL do Vercel
+- [ ] Teste: `/health` no backend
+- [ ] Teste: classificação e conexão Gmail no frontend
 
 ---
 
