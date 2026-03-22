@@ -116,3 +116,45 @@ Depois, **apague o arquivo** `backend/gmail_tokens.json` (se existir) e conecte 
 ## Modo de teste vs produção
 
 Enquanto o app estiver em **modo de teste** no Google Cloud, apenas os usuários adicionados em "Usuários de teste" poderão fazer login. Para liberar para qualquer conta Google, é necessário enviar o app para **verificação** no Google (processo mais demorado).
+
+---
+
+## Troubleshooting: erro `(invalid_client) Unauthorized`
+
+Esse erro aparece **depois** de você autenticar no Google, ao voltar para o app. Significa que o Google rejeitou as credenciais enviadas na troca do código por tokens.
+
+### Checklist (verifique cada item)
+
+1. **Tipo de credencial**
+   - Deve ser **Aplicativo da Web** (Web application), **não** "Aplicativo para computador"
+   - Crie um novo cliente OAuth e escolha "Aplicativo da Web"
+
+2. **URIs de redirecionamento**
+   - Em **Credenciais** → seu cliente OAuth → **URIs de redirecionamento autorizados**
+   - Deve ter **exatamente**: `http://localhost:8000/api/auth/gmail/callback`
+   - Sem barra no final, sem `https` (localhost usa `http`), porta 8000
+
+3. **Arquivo `credentials.json`**
+   - Deve estar em `backend/credentials.json`
+   - Estrutura deve ter `"web"` (não `"installed"`)
+   - Se você baixou um JSON com `"installed"`, crie credenciais do tipo **Aplicativo da Web** novamente
+
+4. **Client ID e Client Secret**
+   - Copie sem espaços extras no início/fim
+   - Use o JSON baixado diretamente do Google Cloud Console (ícone de download na credencial)
+
+5. **`API_BASE_URL`**
+   - Se o backend roda em outra porta (ex: 8001), o redirect_uri muda
+   - A URL em `API_BASE_URL` deve bater com o que está em "URIs de redirecionamento" no Google
+   - Padrão: `http://localhost:8000`
+
+6. **Criar credenciais do zero**
+   - Apague o cliente OAuth antigo
+   - Crie novo: **Credenciais** → **+ Criar credenciais** → **ID do cliente OAuth**
+   - Tipo: **Aplicativo da Web**
+   - Adicione `http://localhost:8000/api/auth/gmail/callback` em URIs de redirecionamento
+   - Baixe o JSON e salve como `backend/credentials.json`
+
+7. **Debug**
+   - Acesse `http://localhost:8000/api/auth/gmail/debug-redirect-uri` e confira se o `redirect_uri` está correto
+   - Essa URL deve bater **exatamente** com a configurada no Google Cloud Console

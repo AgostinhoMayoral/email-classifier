@@ -212,8 +212,17 @@ async def gmail_callback(code: Optional[str] = Query(None), error: Optional[str]
         email = user_info.get("email", "")
         return RedirectResponse(url=f"{FRONTEND_URL}?gmail_success=1&email={quote(email)}")
     except Exception as e:
+        err_str = str(e)
         logging.getLogger("gmail").exception("OAuth callback falhou: %s", e)
-        return RedirectResponse(url=f"{FRONTEND_URL}?gmail_error={quote(str(e))}")
+        # Mensagem mais amigável para invalid_client (guia em GMAIL_SETUP.md)
+        if "invalid_client" in err_str.lower() or "unauthorized" in err_str.lower():
+            hint = (
+                "Verifique: 1) Tipo de credencial = Aplicativo da Web (não Desktop). "
+                "2) redirect_uri exato no Google Cloud: http://localhost:8000/api/auth/gmail/callback. "
+                "3) credentials.json com estrutura 'web'. Veja GMAIL_SETUP.md"
+            )
+            return RedirectResponse(url=f"{FRONTEND_URL}?gmail_error={quote(hint)}")
+        return RedirectResponse(url=f"{FRONTEND_URL}?gmail_error={quote(err_str)}")
 
 
 @app.get("/api/auth/gmail/status")
