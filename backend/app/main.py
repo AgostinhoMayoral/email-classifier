@@ -44,7 +44,7 @@ app = FastAPI(
     version="2.0.0"
 )
 
-# CORS para permitir requisições do frontend Next.js
+# CORS: permite frontend (Vercel + localhost)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
