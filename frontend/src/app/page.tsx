@@ -69,6 +69,7 @@ export default function Home() {
   // Gmail
   const [gmailAuth, setGmailAuth] = useState<{ email: string; name?: string; can_send?: boolean } | null>(null);
   const [gmailLoading, setGmailLoading] = useState(true);
+  const [gmailConnecting, setGmailConnecting] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [emails, setEmails] = useState<GmailMessage[]>([]);
   const [emailsLoading, setEmailsLoading] = useState(false);
@@ -170,12 +171,17 @@ export default function Home() {
   }, []);
 
   const handleConnectGmail = () => {
+    setGmailConnecting(true);
+    setError(null);
     fetch(`${API_URL}/api/auth/gmail/url`)
       .then((r) => r.json())
       .then((data) => {
         window.location.href = data.auth_url;
       })
-      .catch((err) => setError(err.message || "Erro ao obter URL de autenticação"));
+      .catch((err) => {
+        setError(err.message || "Erro ao obter URL de autenticação");
+        setGmailConnecting(false);
+      });
   };
 
   const handleDisconnectGmail = async () => {
@@ -451,33 +457,50 @@ export default function Home() {
             </div>
 
             <div className="hidden md:flex items-center gap-2">
-              {!gmailLoading && (
-                gmailAuth ? (
-                  <div className="flex items-center gap-2">
-                    <div className="flex items-center gap-1.5 min-w-0" title={gmailAuth.email}>
-                      <span className="text-xs text-slate-500 shrink-0">Conectado como</span>
-                      <span className="text-sm text-slate-300 font-medium truncate max-w-[200px]" title={gmailAuth.email}>
-                        {gmailAuth.name || gmailAuth.email}
-                      </span>
-                    </div>
-                    <button type="button" onClick={() => setJobConfigOpen(true)} className="px-3 py-1.5 rounded-lg text-sm border border-slate-600 hover:bg-slate-800/50 transition-colors">
-                      Job Diário
-                    </button>
-                    <button type="button" onClick={handleDisconnectGmail} className="px-3 py-1.5 rounded-lg text-sm border border-slate-600 hover:bg-slate-800/50 transition-colors">
-                      Desconectar
-                    </button>
+              {gmailLoading ? (
+                <div className="flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-600 bg-slate-800/30 animate-pulse" aria-busy="true" aria-live="polite">
+                  <span className="inline-block w-5 h-5 rounded-full border-2 border-slate-500 border-t-cyan-400 animate-spin" role="status" aria-hidden />
+                  <span className="text-sm text-slate-400">Verificando Gmail...</span>
+                </div>
+              ) : gmailAuth ? (
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5 min-w-0" title={gmailAuth.email}>
+                    <span className="text-xs text-slate-500 shrink-0">Conectado como</span>
+                    <span className="text-sm text-slate-300 font-medium truncate max-w-[200px]" title={gmailAuth.email}>
+                      {gmailAuth.name || gmailAuth.email}
+                    </span>
                   </div>
-                ) : (
-                  <button type="button" onClick={handleConnectGmail} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 border border-slate-600 font-medium transition-all">
-                    <svg className="w-5 h-5" viewBox="0 0 24 24"><path fill="currentColor" d="M24 5.457v13.909c0 .904-.732 1.636-1.636 1.636h-3.819V11.73L12 16.64l-6.545-4.91v9.273H1.636A1.636 1.636 0 0 1 0 19.366V5.457c0-2.023 2.309-3.178 3.927-1.964L12 9.128l8.073-5.635C21.69 2.28 24 3.434 24 5.457z"/></svg>
-                    Conectar Gmail
+                  <button type="button" onClick={() => setJobConfigOpen(true)} className="px-3 py-1.5 rounded-lg text-sm border border-slate-600 hover:bg-slate-800/50 transition-colors">
+                    Job Diário
                   </button>
-                )
+                  <button type="button" onClick={handleDisconnectGmail} className="px-3 py-1.5 rounded-lg text-sm border border-slate-600 hover:bg-slate-800/50 transition-colors">
+                    Desconectar
+                  </button>
+                </div>
+              ) : (
+                <button type="button" onClick={handleConnectGmail} disabled={gmailConnecting} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 border border-slate-600 font-medium transition-all disabled:opacity-70 disabled:cursor-not-allowed">
+                  {gmailConnecting ? (
+                    <>
+                      <span className="inline-block w-5 h-5 rounded-full border-2 border-slate-500 border-t-cyan-400 animate-spin" role="status" aria-hidden />
+                      Conectando...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-5 h-5" viewBox="0 0 24 24"><path fill="currentColor" d="M24 5.457v13.909c0 .904-.732 1.636-1.636 1.636h-3.819V11.73L12 16.64l-6.545-4.91v9.273H1.636A1.636 1.636 0 0 1 0 19.366V5.457c0-2.023 2.309-3.178 3.927-1.964L12 9.128l8.073-5.635C21.69 2.28 24 3.434 24 5.457z"/></svg>
+                      Conectar Gmail
+                    </>
+                  )}
+                </button>
               )}
             </div>
 
             <div className="flex md:hidden items-center gap-2">
-              {!gmailLoading && gmailAuth && (
+              {gmailLoading ? (
+                <span className="text-xs text-slate-500 flex items-center gap-1.5">
+                  <span className="inline-block w-3 h-3 rounded-full border-2 border-slate-500 border-t-cyan-400 animate-spin" aria-hidden />
+                  Verificando...
+                </span>
+              ) : gmailAuth && (
                 <span className="text-xs text-slate-500 truncate max-w-[120px]" title={gmailAuth.email}>
                   {gmailAuth.name || gmailAuth.email}
                 </span>
@@ -496,7 +519,12 @@ export default function Home() {
             <div className="md:hidden fixed inset-0 bg-black/40 z-10" onClick={() => setMenuOpen(false)} aria-hidden />
             <div className="md:hidden absolute left-0 right-0 top-full border-b border-[var(--card-border)] bg-[var(--card)] shadow-xl z-20 animate-fade-in">
               <div className="px-4 py-4 space-y-2">
-                {gmailAuth ? (
+                {gmailLoading ? (
+                  <div className="flex items-center justify-center gap-2 py-4 text-slate-400">
+                    <span className="inline-block w-5 h-5 rounded-full border-2 border-slate-500 border-t-cyan-400 animate-spin" aria-hidden />
+                    <span>Verificando conexão Gmail...</span>
+                  </div>
+                ) : gmailAuth ? (
                   <div className="space-y-2">
                     <div className="px-2 py-1 rounded-lg bg-slate-800/50">
                       <p className="text-xs text-slate-500">Conectado como</p>
@@ -507,9 +535,18 @@ export default function Home() {
                     <button type="button" onClick={() => { handleDisconnectGmail(); setMenuOpen(false); }} className="w-full px-4 py-3 rounded-xl border border-slate-600 hover:bg-slate-800/50 text-left font-medium transition-colors">Desconectar Gmail</button>
                   </div>
                 ) : (
-                  <button type="button" onClick={() => { handleConnectGmail(); setMenuOpen(false); }} className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-white/10 hover:bg-white/20 border border-slate-600 font-medium transition-colors">
-                    <svg className="w-5 h-5" viewBox="0 0 24 24"><path fill="currentColor" d="M24 5.457v13.909c0 .904-.732 1.636-1.636 1.636h-3.819V11.73L12 16.64l-6.545-4.91v9.273H1.636A1.636 1.636 0 0 1 0 19.366V5.457c0-2.023 2.309-3.178 3.927-1.964L12 9.128l8.073-5.635C21.69 2.28 24 3.434 24 5.457z"/></svg>
-                    Conectar Gmail
+                  <button type="button" onClick={() => { handleConnectGmail(); setMenuOpen(false); }} disabled={gmailConnecting} className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-white/10 hover:bg-white/20 border border-slate-600 font-medium transition-colors disabled:opacity-70 disabled:cursor-not-allowed">
+                    {gmailConnecting ? (
+                      <>
+                        <span className="inline-block w-5 h-5 rounded-full border-2 border-slate-500 border-t-cyan-400 animate-spin" aria-hidden />
+                        Conectando...
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-5 h-5" viewBox="0 0 24 24"><path fill="currentColor" d="M24 5.457v13.909c0 .904-.732 1.636-1.636 1.636h-3.819V11.73L12 16.64l-6.545-4.91v9.273H1.636A1.636 1.636 0 0 1 0 19.366V5.457c0-2.023 2.309-3.178 3.927-1.964L12 9.128l8.073-5.635C21.69 2.28 24 3.434 24 5.457z"/></svg>
+                        Conectar Gmail
+                      </>
+                    )}
                   </button>
                 )}
               </div>
@@ -560,11 +597,26 @@ export default function Home() {
           {/* Tab: Gmail */}
           {activeTab === "gmail" && (
             <section className="space-y-4 animate-fade-in">
-              {!gmailAuth ? (
+              {gmailLoading ? (
+                <div className="rounded-2xl border border-[var(--card-border)] bg-[var(--card)] p-12 text-center">
+                  <div className="flex flex-col items-center gap-4">
+                    <span className="inline-block w-10 h-10 rounded-full border-4 border-slate-600 border-t-cyan-400 animate-spin" role="status" aria-label="Carregando" />
+                    <p className="text-slate-400">Verificando conexão com Gmail...</p>
+                    <p className="text-xs text-slate-500">Aguarde enquanto verificamos seu status de autenticação.</p>
+                  </div>
+                </div>
+              ) : !gmailAuth ? (
                 <div className="rounded-2xl border border-[var(--card-border)] bg-[var(--card)] p-12 text-center">
                   <p className="text-slate-400 mb-6">Conecte seu Gmail para listar emails, classificar e enviar respostas em lote.</p>
-                  <button type="button" onClick={handleConnectGmail} className="px-6 py-3 rounded-xl bg-cyan-600 hover:bg-cyan-700 font-medium transition-colors">
-                    Conectar Gmail
+                  <button type="button" onClick={handleConnectGmail} disabled={gmailConnecting} className="px-6 py-3 rounded-xl bg-cyan-600 hover:bg-cyan-700 font-medium transition-colors disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-2 mx-auto">
+                    {gmailConnecting ? (
+                      <>
+                        <span className="inline-block w-5 h-5 rounded-full border-2 border-white/30 border-t-white animate-spin" aria-hidden />
+                        Conectando...
+                      </>
+                    ) : (
+                      "Conectar Gmail"
+                    )}
                   </button>
                 </div>
               ) : (
