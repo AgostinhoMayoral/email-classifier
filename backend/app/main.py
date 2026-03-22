@@ -3,8 +3,12 @@ API principal para classificação e geração de respostas de emails.
 Solução para automatização de leitura e classificação de emails corporativos.
 """
 
+from pathlib import Path
 from dotenv import load_dotenv
-load_dotenv()
+
+# Carrega .env da pasta backend (independente do cwd)
+_backend_dir = Path(__file__).resolve().parent.parent
+load_dotenv(_backend_dir / ".env", override=True)
 
 import logging
 logging.basicConfig(
@@ -179,6 +183,13 @@ async def send_single_email(body: SendSingleRequest):
 # ============ Gmail OAuth ============
 
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
+
+
+@app.get("/api/auth/gmail/debug-redirect-uri")
+async def gmail_debug_redirect_uri():
+    """Endpoint de debug: mostra o redirect_uri que o backend envia ao Google."""
+    redirect = f"{os.getenv('API_BASE_URL', 'http://localhost:8000').rstrip('/')}/api/auth/gmail/callback"
+    return {"redirect_uri": redirect, "api_base_url": os.getenv("API_BASE_URL")}
 
 
 @app.get("/api/auth/gmail/url")
