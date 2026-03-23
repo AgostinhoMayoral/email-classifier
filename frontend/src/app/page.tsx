@@ -741,25 +741,27 @@ export default function Home() {
             </p>
           </section>
 
-          {/* Vídeo de demonstração (placeholder até o oficial) */}
-          <section className='rounded-2xl border border-[var(--card-border)] bg-[var(--card)] overflow-hidden'>
-            <h3 className='text-lg font-semibold text-slate-300 px-4 py-3 border-b border-slate-700'>
-              Vídeo de demonstração
-            </h3>
-            <div className='aspect-video bg-slate-900'>
-              <video
-                src={DEMO_VIDEO_URL}
-                controls
-                className='w-full h-full object-contain'
-                playsInline
-              >
-                Seu navegador não suporta vídeos.
-              </video>
-            </div>
-            <p className='text-xs text-slate-500 px-4 py-2 border-t border-slate-700/50'>
-              Vídeo de exemplo. O oficial será incluído em breve.
-            </p>
-          </section>
+          {/* Vídeo de demonstração (só renderiza quando DEMO_VIDEO_URL estiver definida) */}
+          {DEMO_VIDEO_URL && (
+            <section className='rounded-2xl border border-[var(--card-border)] bg-[var(--card)] overflow-hidden'>
+              <h3 className='text-lg font-semibold text-slate-300 px-4 py-3 border-b border-slate-700'>
+                Vídeo de demonstração
+              </h3>
+              <div className='aspect-video bg-slate-900'>
+                <video
+                  src={DEMO_VIDEO_URL}
+                  controls
+                  className='w-full h-full object-contain'
+                  playsInline
+                >
+                  Seu navegador não suporta vídeos.
+                </video>
+              </div>
+              <p className='text-xs text-slate-500 px-4 py-2 border-t border-slate-700/50'>
+                Vídeo de exemplo. O oficial será incluído em breve.
+              </p>
+            </section>
+          )}
 
           {/* Tabs */}
           <div className='flex gap-1 p-1 rounded-xl bg-slate-800/50 border border-slate-700'>
