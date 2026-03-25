@@ -17,6 +17,8 @@ interface GmailMessage {
   subject: string;
   from: string;
   date: string;
+  /** Epoch ms no Gmail (preferir para exibir horário correto) */
+  internalDate?: number | null;
   already_sent?: boolean;
   record_id?: number;
   status?: string;
@@ -45,6 +47,35 @@ interface Pagination {
 }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
+/** Fuso usado pelo job, filtros e exibição (alinhado ao backend) */
+const APP_TIMEZONE = 'America/Sao_Paulo';
+
+function formatDateTimePtBrSP(isoOrMs: string | number | null | undefined): string {
+  if (isoOrMs == null || isoOrMs === '') return '';
+  const d =
+    typeof isoOrMs === 'number' ? new Date(isoOrMs) : new Date(isoOrMs);
+  if (Number.isNaN(d.getTime()))
+    return typeof isoOrMs === 'string' ? isoOrMs : '';
+  return d.toLocaleString('pt-BR', {
+    timeZone: APP_TIMEZONE,
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function formatGmailRowDate(msg: GmailMessage): string {
+  if (msg.internalDate != null && msg.internalDate !== undefined)
+    return formatDateTimePtBrSP(Number(msg.internalDate));
+  if (msg.date) {
+    const parsed = new Date(msg.date);
+    if (!Number.isNaN(parsed.getTime())) return formatDateTimePtBrSP(parsed.getTime());
+  }
+  return msg.date || '';
+}
 
 /** URL do vídeo de demonstração (trocar pelo oficial quando estiver pronto) */
 //const DEMO_VIDEO_URL = "https://res.cloudinary.com/ti-tinho/video/upload/v1773939753/chat_attachments/oz5jm2pgqitemfpbb60w.mp4";
@@ -107,6 +138,8 @@ export default function Home() {
   const [sentDateTo, setSentDateTo] = useState('');
   const [expandedSentId, setExpandedSentId] = useState<number | null>(null);
 
+  const pendingListDatesInitialized = useRef(false);
+
   const [jobConfigOpen, setJobConfigOpen] = useState(false);
   const [jobConfig, setJobConfig] = useState<{
     enabled: boolean;
@@ -164,6 +197,20 @@ export default function Home() {
       .catch(() => setGmailAuth(null))
       .finally(() => setGmailLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (!gmailAuth) {
+      pendingListDatesInitialized.current = false;
+      return;
+    }
+    if (pendingListDatesInitialized.current) return;
+    const today = new Date().toLocaleDateString('en-CA', {
+      timeZone: APP_TIMEZONE,
+    });
+    setDateFrom(today);
+    setDateTo(today);
+    pendingListDatesInitialized.current = true;
+  }, [gmailAuth]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -242,6 +289,7 @@ export default function Home() {
   }, [gmailAuth, page, perPage, dateFrom, dateTo]);
 
   const fetchSentEmails = useCallback(() => {
+    if (!gmailAuth) return;
     setSentLoading(true);
     setError(null);
     const params = new URLSearchParams();
@@ -261,15 +309,15 @@ export default function Home() {
       })
       .catch(err => setError(err.message))
       .finally(() => setSentLoading(false));
-  }, [sentPage, sentPerPage, sentDateFrom, sentDateTo]);
+  }, [gmailAuth, sentPage, sentPerPage, sentDateFrom, sentDateTo]);
 
   useEffect(() => {
     if (gmailAuth && activeTab === 'gmail') fetchEmails();
   }, [gmailAuth, activeTab, fetchEmails]);
 
   useEffect(() => {
-    if (activeTab === 'gmail' && gmailSubTab === 'sent') fetchSentEmails();
-  }, [activeTab, gmailSubTab, fetchSentEmails]);
+    if (gmailAuth && activeTab === 'gmail' && gmailSubTab === 'sent') fetchSentEmails();
+  }, [gmailAuth, activeTab, gmailSubTab, fetchSentEmails]);
 
   const handleClassifyGmailEmail = async (messageId: string) => {
     setClassifyLoading(true);
@@ -1104,8 +1152,11 @@ export default function Home() {
                                             {msg.snippet}
                                           </p>
                                         </div>
-                                        <span className='text-xs text-slate-500 shrink-0'>
-                                          {msg.date}
+                                        <span
+                                          className='text-xs text-slate-500 shrink-0'
+                                          title='Horário em America/Sao_Paulo'
+                                        >
+                                          {formatGmailRowDate(msg)}
                                         </span>
                                       </div>
                                     </button>
@@ -1309,16 +1360,11 @@ export default function Home() {
                                             </p>
                                           )}
                                         </div>
-                                        <span className='text-xs text-slate-500 shrink-0'>
-                                          {rec.received_at
-                                            ? new Date(
-                                                rec.received_at,
-                                              ).toLocaleDateString('pt-BR', {
-                                                day: '2-digit',
-                                                month: '2-digit',
-                                                year: 'numeric',
-                                              })
-                                            : ''}
+                                        <span
+                                          className='text-xs text-slate-500 shrink-0'
+                                          title='Horário em America/Sao_Paulo'
+                                        >
+                                          {formatDateTimePtBrSP(rec.received_at)}
                                         </span>
                                       </div>
                                       {expandedSentId === rec.id &&

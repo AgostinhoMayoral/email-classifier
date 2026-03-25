@@ -2,7 +2,7 @@
 Serviço do job diário de classificação e envio de emails.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional
 
 from sqlalchemy.orm import Session
@@ -12,6 +12,7 @@ from app.services import gmail_service
 from app.services.processor import process_email
 from app.repositories import email_repository
 from app.models import EmailStatus
+from app.timezone_utils import resolve_gmail_date_range_sp
 
 
 def _parse_gmail_date(date_str: Optional[str]) -> Optional[datetime]:
@@ -34,21 +35,21 @@ def run_daily_job(
 ) -> dict:
     """
     Executa o job diário:
-    1. Busca emails do Gmail no período
+    1. Busca emails do Gmail no período (padrão: apenas o dia atual em America/Sao_Paulo)
     2. Classifica os não classificados
     3. Envia respostas para os selecionados (evita duplicados)
     """
     if not gmail_service.is_authenticated():
         return {"success": False, "error": "Gmail não autenticado"}
 
-    if not date_from:
-        date_from = datetime.utcnow() - timedelta(days=1)
-    if not date_to:
-        date_to = datetime.utcnow()
+    user_info = gmail_service.get_user_info()
+    account = (user_info.get("email") or "").strip().lower() if user_info else None
 
-    # Query Gmail com filtro de data (exclui já respondidos)
-    after_str = date_from.strftime("%Y/%m/%d")
-    before_str = date_to.strftime("%Y/%m/%d")
+    range_start, range_end_excl = resolve_gmail_date_range_sp(date_from, date_to)
+
+    # Query Gmail: after = primeiro dia SP (inclusivo), before = exclusivo
+    after_str = range_start.strftime("%Y/%m/%d")
+    before_str = range_end_excl.strftime("%Y/%m/%d")
     query = f"after:{after_str} before:{before_str}"
     sent_ids = email_repository.get_all_sent_gmail_ids(db)
     messages = gmail_service.list_messages(max_results=max_emails, query=query, exclude_ids=sent_ids)
@@ -75,7 +76,8 @@ def run_daily_job(
 
         # Criar ou obter registro
         record = email_repository.get_or_create_email_record(
-            db, gmail_id, thread_id, subject, sender, snippet, received_at
+            db, gmail_id, thread_id, subject, sender, snippet, received_at,
+            gmail_account_email=account,
         )
 
         # Se já enviado, pular

@@ -24,6 +24,7 @@ class EmailRecord(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     gmail_message_id = Column(String(255), unique=True, nullable=True, index=True)  # ID do Gmail
+    gmail_account_email = Column(String(320), nullable=True, index=True)  # conta OAuth que classificou/enviou
     thread_id = Column(String(255), nullable=True, index=True)
     subject = Column(String(500), nullable=False, default="")
     sender = Column(String(500), nullable=False, default="")

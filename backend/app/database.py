@@ -3,9 +3,12 @@ Configuração do banco de dados PostgreSQL.
 """
 
 import os
-from sqlalchemy import create_engine
+import logging
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import sessionmaker, declarative_base
 from sqlalchemy.pool import StaticPool
+
+logger = logging.getLogger(__name__)
 
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
@@ -44,7 +47,48 @@ def get_db():
         db.close()
 
 
+def _ensure_email_records_gmail_account_column():
+    """Adiciona coluna gmail_account_email em bases já existentes (create_all não altera tabelas)."""
+    try:
+        inspector = inspect(engine)
+        if not inspector.has_table("email_records"):
+            return
+        cols = {c["name"] for c in inspector.get_columns("email_records")}
+        if "gmail_account_email" in cols:
+            return
+        dialect = engine.dialect.name
+        with engine.begin() as conn:
+            if dialect == "postgresql":
+                conn.execute(
+                    text(
+                        "ALTER TABLE email_records ADD COLUMN gmail_account_email VARCHAR(320) NULL"
+                    )
+                )
+                conn.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_email_records_gmail_account_email "
+                        "ON email_records (gmail_account_email)"
+                    )
+                )
+            else:
+                conn.execute(
+                    text(
+                        "ALTER TABLE email_records ADD COLUMN gmail_account_email VARCHAR(320) NULL"
+                    )
+                )
+                conn.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_email_records_gmail_account_email "
+                        "ON email_records (gmail_account_email)"
+                    )
+                )
+        logger.info("Migração: coluna email_records.gmail_account_email adicionada.")
+    except Exception as e:
+        logger.warning("Não foi possível garantir coluna gmail_account_email: %s", e)
+
+
 def init_db():
     """Cria todas as tabelas no banco."""
     from app.models import EmailRecord, EmailClassification, EmailLog, JobConfig  # noqa: F401
     Base.metadata.create_all(bind=engine)
+    _ensure_email_records_gmail_account_column()

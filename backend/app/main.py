@@ -18,6 +18,13 @@ logging.basicConfig(
 )
 
 from datetime import datetime
+
+from app.timezone_utils import (
+    gmail_after_before_strings_sp,
+    sp_calendar_bounds_to_utc_naive,
+    sp_day_end_utc_naive,
+    sp_day_start_utc_naive,
+)
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Query, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
@@ -261,6 +268,15 @@ def _parse_date(date_str: Optional[str]) -> Optional[datetime]:
     return None
 
 
+def _current_gmail_account_email() -> Optional[str]:
+    """Email da conta Google conectada (normalizado), ou None."""
+    info = gmail_service.get_user_info()
+    if not info:
+        return None
+    e = (info.get("email") or "").strip().lower()
+    return e or None
+
+
 @app.get("/api/emails")
 async def list_emails(
     page: int = Query(1, ge=1),
@@ -271,23 +287,29 @@ async def list_emails(
 ):
     """
     Lista emails do Gmail com paginação e filtro de data.
+    Sem date_from/date_to: apenas mensagens do dia atual em America/Sao_Paulo.
     Sincroniza com o banco: retorna classificação e status de envio quando existir.
     """
     try:
         if not gmail_service.is_authenticated():
             raise HTTPException(status_code=401, detail="Conecte sua conta Gmail primeiro.")
 
-        # Montar query Gmail
+        # Montar query Gmail (datas = calendário SP; sem filtro explícito = hoje em SP)
         gmail_query_parts = []
         df = _parse_date(date_from)
         dt = _parse_date(date_to)
-        if df:
-            gmail_query_parts.append(f"after:{df.strftime('%Y/%m/%d')}")
-        if dt:
-            # Gmail before é exclusivo; adicionar 1 dia para incluir o dia final
-            from datetime import timedelta
-            dt_adj = dt + timedelta(days=1)
-            gmail_query_parts.append(f"before:{dt_adj.strftime('%Y/%m/%d')}")
+        if df is None and dt is None:
+            after_s, before_s = gmail_after_before_strings_sp(None, None)
+            gmail_query_parts.append(f"after:{after_s}")
+            gmail_query_parts.append(f"before:{before_s}")
+        else:
+            if df:
+                gmail_query_parts.append(f"after:{df.strftime('%Y/%m/%d')}")
+            if dt:
+                from datetime import timedelta
+
+                dt_adj = dt + timedelta(days=1)
+                gmail_query_parts.append(f"before:{dt_adj.strftime('%Y/%m/%d')}")
         gmail_query = " ".join(gmail_query_parts) if gmail_query_parts else ""
 
         # IDs já respondidos: não mostrar na lista (só mensagens que precisam de resposta)
@@ -353,16 +375,31 @@ async def list_email_records(
     category: Optional[str] = Query(None),
     db: Session = Depends(get_db),
 ):
-    """Lista emails persistidos no banco com paginação e filtros."""
+    """Lista emails persistidos no banco com paginação e filtros (somente da conta Gmail conectada)."""
+    if not gmail_service.is_authenticated():
+        raise HTTPException(status_code=401, detail="Conecte sua conta Gmail primeiro.")
+    account = _current_gmail_account_email()
+    if not account:
+        raise HTTPException(
+            status_code=401,
+            detail="Não foi possível obter o email da conta Google. Reconecte o Gmail.",
+        )
+
     df = _parse_date(date_from)
     dt = _parse_date(date_to)
-    if dt:
-        from datetime import timedelta
-        dt = dt.replace(hour=23, minute=59, second=59, microsecond=999999)
+    df_utc = None
+    dt_utc = None
+    if df is not None and dt is not None:
+        df_utc, dt_utc = sp_calendar_bounds_to_utc_naive(df, dt)
+    elif df is not None:
+        df_utc = sp_day_start_utc_naive(df)
+    elif dt is not None:
+        dt_utc = sp_day_end_utc_naive(dt)
 
     items, total = email_repository.list_emails_paginated(
         db, page=page, per_page=per_page,
-        date_from=df, date_to=dt, status=status, category=category,
+        date_from=df_utc, date_to=dt_utc, status=status, category=category,
+        gmail_account_email=account,
     )
 
     result = []
@@ -412,6 +449,13 @@ async def send_batch(
     if not gmail_service.is_authenticated():
         raise HTTPException(status_code=401, detail="Conecte sua conta Gmail primeiro.")
 
+    account = _current_gmail_account_email()
+    if not account:
+        raise HTTPException(
+            status_code=401,
+            detail="Não foi possível obter o email da conta Google. Reconecte o Gmail.",
+        )
+
     sent_ids = email_repository.get_ids_already_sent(db, body.message_ids)
     to_send = [mid for mid in body.message_ids if mid not in sent_ids]
     if not to_send:
@@ -441,6 +485,7 @@ async def send_batch(
                     db, gmail_id, msg_data.get("threadId"),
                     msg_data.get("subject", "(sem assunto)"), msg_data.get("from", ""),
                     msg_data.get("snippet"), received_at,
+                    gmail_account_email=account,
                 )
                 email_repository.save_classification(
                     db, record.id,
@@ -527,6 +572,12 @@ async def classify_gmail_email(
         if msg_data.get("internalDate"):
             received_at = datetime.utcfromtimestamp(int(msg_data["internalDate"]) / 1000)
 
+        account = _current_gmail_account_email()
+        if not account:
+            raise HTTPException(
+                status_code=401,
+                detail="Não foi possível obter o email da conta Google. Reconecte o Gmail.",
+            )
         record = email_repository.get_or_create_email_record(
             db,
             gmail_message_id=message_id,
@@ -535,6 +586,7 @@ async def classify_gmail_email(
             sender=msg_data.get("from", ""),
             snippet=msg_data.get("snippet"),
             received_at=received_at,
+            gmail_account_email=account,
         )
         email_repository.save_classification(
             db,

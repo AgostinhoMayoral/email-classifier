@@ -11,6 +11,11 @@ from sqlalchemy import desc
 from app.models import EmailRecord, EmailClassification, EmailLog, EmailStatus
 
 
+def _norm_account(email: Optional[str]) -> Optional[str]:
+    e = (email or "").strip().lower()
+    return e or None
+
+
 def get_or_create_email_record(
     db: Session,
     gmail_message_id: str,
@@ -19,15 +24,23 @@ def get_or_create_email_record(
     sender: str,
     snippet: Optional[str],
     received_at: Optional[datetime],
+    gmail_account_email: Optional[str] = None,
 ) -> EmailRecord:
     """Obtém ou cria registro de email pelo ID do Gmail."""
+    owner = _norm_account(gmail_account_email)
     record = db.query(EmailRecord).filter(
         EmailRecord.gmail_message_id == gmail_message_id
     ).first()
     if record:
+        if owner and not record.gmail_account_email:
+            record.gmail_account_email = owner
+            record.updated_at = datetime.utcnow()
+            db.commit()
+            db.refresh(record)
         return record
     record = EmailRecord(
         gmail_message_id=gmail_message_id,
+        gmail_account_email=owner,
         thread_id=thread_id,
         subject=subject or "(sem assunto)",
         sender=sender or "",
@@ -97,12 +110,16 @@ def list_emails_paginated(
     date_to: Optional[datetime] = None,
     status: Optional[str] = None,
     category: Optional[str] = None,
+    gmail_account_email: Optional[str] = None,
 ) -> tuple[list[EmailRecord], int]:
     """
     Lista emails com paginação e filtros.
     Retorna (lista, total_count).
     """
     q = db.query(EmailRecord)
+    owner = _norm_account(gmail_account_email)
+    if owner:
+        q = q.filter(EmailRecord.gmail_account_email == owner)
     if date_from:
         q = q.filter(EmailRecord.received_at >= date_from)
     if date_to:

@@ -3,7 +3,7 @@ Agendador do job diário de classificação e envio de emails.
 """
 
 import os
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -18,12 +18,12 @@ def _run_scheduled_job():
     db = SessionLocal()
     try:
         config = db.query(JobConfig).filter(JobConfig.enabled == True).first()
-        date_from = datetime.utcnow() - timedelta(days=1)
-        date_to = datetime.utcnow()
+        date_from = None
+        date_to = None
         only_productive = False
         if config:
-            date_from = config.date_from or date_from
-            date_to = config.date_to or date_to
+            date_from = config.date_from
+            date_to = config.date_to
             only_productive = config.only_productive
             config.last_run_at = datetime.utcnow()
             db.commit()
