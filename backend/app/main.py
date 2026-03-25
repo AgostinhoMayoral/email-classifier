@@ -20,7 +20,7 @@ logging.basicConfig(
 from datetime import datetime
 
 from app.timezone_utils import (
-    gmail_after_before_strings_sp,
+    gmail_after_before_strings_current_month_sp,
     sp_calendar_bounds_to_utc_naive,
     sp_day_end_utc_naive,
     sp_day_start_utc_naive,
@@ -287,7 +287,7 @@ async def list_emails(
 ):
     """
     Lista emails do Gmail com paginação e filtro de data.
-    Sem date_from/date_to: apenas mensagens do dia atual em America/Sao_Paulo.
+    Sem date_from/date_to: mensagens do mês civil atual em America/Sao_Paulo.
     Sincroniza com o banco: retorna classificação e status de envio quando existir.
     """
     try:
@@ -299,7 +299,7 @@ async def list_emails(
         df = _parse_date(date_from)
         dt = _parse_date(date_to)
         if df is None and dt is None:
-            after_s, before_s = gmail_after_before_strings_sp(None, None)
+            after_s, before_s = gmail_after_before_strings_current_month_sp()
             gmail_query_parts.append(f"after:{after_s}")
             gmail_query_parts.append(f"before:{before_s}")
         else:

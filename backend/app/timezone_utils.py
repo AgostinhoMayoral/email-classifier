@@ -22,6 +22,25 @@ def naive_calendar_to_sp_start(naive: datetime) -> datetime:
     return datetime(naive.year, naive.month, naive.day, tzinfo=APP_TZ)
 
 
+def current_month_sp_bounds() -> Tuple[datetime, datetime]:
+    """
+    Mês civil atual em America/Sao_Paulo: início inclusivo (00:00 dia 1)
+    e início do mês seguinte (exclusivo), no formato esperado por after:/before: no Gmail.
+    """
+    today = now_app_tz()
+    month_start = datetime(today.year, today.month, 1, tzinfo=APP_TZ)
+    if today.month == 12:
+        end_excl = datetime(today.year + 1, 1, 1, tzinfo=APP_TZ)
+    else:
+        end_excl = datetime(today.year, today.month + 1, 1, tzinfo=APP_TZ)
+    return month_start, end_excl
+
+
+def gmail_after_before_strings_current_month_sp() -> Tuple[str, str]:
+    start, end_excl = current_month_sp_bounds()
+    return start.strftime("%Y/%m/%d"), end_excl.strftime("%Y/%m/%d")
+
+
 def resolve_gmail_date_range_sp(
     date_from: Optional[datetime],
     date_to: Optional[datetime],

@@ -51,6 +51,18 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 /** Fuso usado pelo job, filtros e exibição (alinhado ao backend) */
 const APP_TIMEZONE = 'America/Sao_Paulo';
 
+/** Primeiro e último dia do mês civil atual em SP (YYYY-MM-DD), alinhado ao backend. */
+function getCurrentMonthRangeYmdSp(): { from: string; to: string } {
+  const ymd = new Date().toLocaleDateString('en-CA', { timeZone: APP_TIMEZONE });
+  const [yStr, mStr] = ymd.split('-');
+  const y = Number(yStr, 10);
+  const m = Number(mStr, 10);
+  const from = `${yStr}-${mStr}-01`;
+  const lastDay = new Date(y, m, 0).getDate();
+  const to = `${yStr}-${mStr}-${String(lastDay).padStart(2, '0')}`;
+  return { from, to };
+}
+
 function formatDateTimePtBrSP(isoOrMs: string | number | null | undefined): string {
   if (isoOrMs == null || isoOrMs === '') return '';
   const d =
@@ -204,11 +216,9 @@ export default function Home() {
       return;
     }
     if (pendingListDatesInitialized.current) return;
-    const today = new Date().toLocaleDateString('en-CA', {
-      timeZone: APP_TIMEZONE,
-    });
-    setDateFrom(today);
-    setDateTo(today);
+    const { from, to } = getCurrentMonthRangeYmdSp();
+    setDateFrom(from);
+    setDateTo(to);
     pendingListDatesInitialized.current = true;
   }, [gmailAuth]);
 
