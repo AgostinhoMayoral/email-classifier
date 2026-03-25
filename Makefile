@@ -3,7 +3,7 @@
 
 .DEFAULT_GOAL := help
 
-.PHONY: help up down backend frontend dev install setup venv logs status clean test
+.PHONY: help up down backend frontend dev install setup venv logs status clean test db-upgrade db-migration-status db-check-alembic
 
 # Cria venv se não existir
 venv:
@@ -20,7 +20,7 @@ NC     := \033[0m
 # Python venv (backend/.venv)
 VENV := backend/.venv
 PYTHON := $(VENV)/bin/python
-PIP := $(VENV)/bin/pip
+# Use "python -m pip" so a venv copiado de outra máquina não quebra (shebang do pip).
 # Quando rodando de dentro de backend/
 BACKEND_PY := .venv/bin/python
 
@@ -38,6 +38,9 @@ help:
 	@echo "  make status    - Verifica status dos serviços"
 	@echo "  make clean     - Limpa cache e artefatos"
 	@echo "  make test      - Executa testes do backend"
+	@echo "  make db-upgrade - Alembic upgrade head (use DATABASE_URL do backend/.env)"
+	@echo "  make db-migration-status - mostra revisão atual e head esperado"
+	@echo "  make db-check-alembic - garante um único head de migração (sem DB)"
 	@echo ""
 
 # Docker / Banco
@@ -67,7 +70,7 @@ frontend:
 # Instalação
 install: venv
 	@echo "$(YELLOW)Instalando dependências do backend...$(NC)"
-	@$(PIP) install -r backend/requirements.txt
+	@$(PYTHON) -m pip install -r backend/requirements.txt
 	@echo "$(YELLOW)Instalando dependências do frontend...$(NC)"
 	cd frontend && npm install
 	@echo "$(GREEN)Dependências instaladas!$(NC)"
@@ -113,6 +116,20 @@ status:
 	@echo ""
 	@(curl -s -o /dev/null -w "  API (8000): %{http_code}\n" http://localhost:8000/docs 2>/dev/null) || echo "  API (8000): offline"
 	@(curl -s -o /dev/null -w "  Frontend (3000): %{http_code}\n" http://localhost:3000 2>/dev/null) || echo "  Frontend (3000): offline"
+
+# Banco: mesmo fluxo que produção (PostgreSQL + Alembic)
+db-check-alembic:
+	@$(PYTHON) backend/scripts/verify_single_alembic_head.py
+
+db-upgrade: up
+	@echo "$(YELLOW)Alembic upgrade head (backend/.env)...$(NC)"
+	cd backend && $(BACKEND_PY) -m alembic upgrade head
+
+db-migration-status: up
+	@echo "$(YELLOW)Revisão aplicada no banco:$(NC)"
+	@cd backend && $(BACKEND_PY) -m alembic current
+	@echo "$(YELLOW)Head no repositório:$(NC)"
+	@cd backend && $(BACKEND_PY) -m alembic heads
 
 # Testes (SQLite em memória; não espelha produção)
 test:

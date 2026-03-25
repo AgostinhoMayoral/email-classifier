@@ -61,11 +61,23 @@ Em cada **subida do backend** (Render ou `uvicorn` local com PostgreSQL), o app 
 
 1. `create_all` — cria tabelas que ainda não existem  
 2. Garantias legadas de colunas (ex.: `gmail_account_email` em bases antigas)  
-3. **Alembic `upgrade head`** — aplica revisões em `backend/alembic/versions/`
+3. **Alembic `upgrade head`** — aplica revisões em `backend/migrations/versions/`
 
-Assim produção passa a receber automaticamente novas revisões Alembic depois do deploy. Para desenvolvimento com o mesmo comportamento, use PostgreSQL local (`docker compose up -d`) e **não** use `USE_SQLITE=1` no dia a dia (SQLite fica só para `pytest`).
+Assim produção recebe as mesmas revisões que o repositório assim que o novo código sobe. **Conteúdo dos dados** (linhas nas tabelas) não é copiado entre ambientes; o que fica alinhado é **estrutura e versão de migração**.
 
-Nova alteração de schema: no diretório `backend/`, rode `alembic revision -m "descrição"`, edite o arquivo gerado em `alembic/versions/` e faça deploy; o startup aplica a revisão.
+**Regras para dev e prod permanecerem iguais:**
+
+| Regra | Motivo |
+|--------|--------|
+| Desenvolvimento diário com **PostgreSQL** local (`docker compose up` + `DATABASE_URL` no `backend/.env`) | Mesmo fluxo de startup que o Render (`create_all` + Alembic). |
+| **Não** alterar schema só no Supabase/DBeaver (`ALTER` manual em prod) | O código não fica rastreado; no próximo ambiente o schema diverge. |
+| Qualquer mudança em `app/models.py` → **nova revisão Alembic** no mesmo PR/commit | Uma única fonte da verdade no Git. |
+| Antes de merge/deploy: `make db-upgrade` no Postgres local e smoke na API | Confirma que a revisão aplica sem erro. |
+| Opcional: `make db-migration-status` | `current` deve coincidir com `heads` após o upgrade. |
+
+No repositório, `make db-check-alembic` (e o workflow **Backend schema** no GitHub) garantem **um único head** do Alembic — evita duas linhas de migração divergentes.
+
+**Nova alteração de schema:** no diretório `backend/`, `alembic revision -m "descrição"`, edite o arquivo em `migrations/versions/`, teste com `make db-upgrade`, faça commit e deploy. O Render aplica `upgrade head` no startup. *(A pasta chama-se `migrations` — e não `alembic` — para não conflitar com o pacote Python `alembic` no `import`.)*
 
 ---
 

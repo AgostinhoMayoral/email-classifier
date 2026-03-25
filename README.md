@@ -77,7 +77,7 @@ docker-compose up -d
 
 Isso sobe o PostgreSQL em `localhost:5432`. Ou use um banco existente e configure `DATABASE_URL` no `.env`.
 
-**Paridade com produção:** desenvolvimento local deve usar **PostgreSQL** (docker-compose ou instância própria). O mesmo fluxo de schema da produção roda no startup: `create_all` + colunas legadas garantidas + **Alembic** até `head`. SQLite em memória existe **somente nos testes** (`pytest` define `USE_SQLITE=1`).
+**Paridade com produção:** use **PostgreSQL** local (`docker compose up -d`) e o mesmo tipo de fluxo do Render: ao subir o backend, rodam `create_all`, garantias legadas e **Alembic `upgrade head`**. Mudanças de tabela vão em **revisões Alembic** no Git — evite `ALTER` só em um ambiente. Comandos úteis: `make db-upgrade`, `make db-migration-status`, `make db-check-alembic`. SQLite em memória é **só para `pytest`** (`USE_SQLITE=1`).
 
 ### 1. Backend (Python)
 
