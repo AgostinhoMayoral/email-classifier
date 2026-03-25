@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback, useEffect, useRef } from 'react';
+import { API_URL } from '@/core/infrastructure/api-config';
 
 interface ClassificationResult {
   category: string;
@@ -45,8 +46,6 @@ interface Pagination {
   total: number;
   total_pages: number;
 }
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 /** Fuso usado pelo job, filtros e exibição (alinhado ao backend) */
 const APP_TIMEZONE = 'America/Sao_Paulo';

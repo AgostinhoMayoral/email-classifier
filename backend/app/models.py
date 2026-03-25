@@ -7,15 +7,10 @@ from sqlalchemy import Column, Integer, String, Text, Float, Boolean, DateTime, 
 from sqlalchemy.orm import relationship
 
 from app.database import Base
+from app.domain.value_objects.email_record_status import EmailRecordStatus
 
-
-class EmailStatus:
-    """Status do processamento do email."""
-    PENDING = "pending"
-    CLASSIFIED = "classified"
-    SENT = "sent"
-    SKIPPED = "skipped"
-    FAILED = "failed"
+# Compat: código existente importa EmailStatus a partir de models
+EmailStatus = EmailRecordStatus
 
 
 class EmailRecord(Base):
@@ -30,7 +25,7 @@ class EmailRecord(Base):
     sender = Column(String(500), nullable=False, default="")
     snippet = Column(Text, nullable=True)
     received_at = Column(DateTime, nullable=True)  # Data de recebimento do email
-    status = Column(String(20), default=EmailStatus.PENDING, index=True)
+    status = Column(String(20), default=EmailRecordStatus.PENDING, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

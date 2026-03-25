@@ -13,10 +13,13 @@ os.environ.setdefault("OAUTHLIB_RELAX_TOKEN_SCOPE", "1")
 logger = logging.getLogger("gmail_service")
 import base64
 import re
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, Set
-from google.oauth2.credentials import Credentials
+from typing import Any, Optional, Set
+
+from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 
@@ -47,6 +50,35 @@ def _get_redirect_uri() -> str:
     """Retorna a URI de redirect para OAuth"""
     base_url = os.getenv("API_BASE_URL", "http://localhost:8000")
     return f"{base_url.rstrip('/')}/api/auth/gmail/callback"
+
+
+def _expiry_to_iso(dt: Optional[datetime]) -> Optional[str]:
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc).isoformat()
+
+
+def _expiry_from_json(raw: Any) -> Optional[datetime]:
+    """Parse da data de expiração do access token; None se ausente ou inválida."""
+    if not raw or not isinstance(raw, str):
+        return None
+    try:
+        normalized = raw.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(normalized)
+        # google.auth compara expiry com utcnow() naive — usar UTC naive evita TypeError (py3.12+).
+        if dt.tzinfo is not None:
+            dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+        return dt
+    except ValueError:
+        logger.warning("expiry inválida em gmail_tokens.json: %s", raw)
+        return None
+
+
+def _write_tokens_file(tokens: dict) -> None:
+    with open(TOKENS_PATH, "w") as f:
+        json.dump(tokens, f, indent=2)
 
 
 def get_auth_url() -> tuple[str, str]:
@@ -114,7 +146,7 @@ def exchange_code_for_tokens(code: str) -> dict:
     client_id = credentials.client_id or web_config.get("client_id")
     client_secret = credentials.client_secret or web_config.get("client_secret")
 
-    # Salvar tokens
+    # Salvar tokens (expiry é obrigatória para detectar token expirado nas próximas sessões)
     tokens_data = {
         "token": credentials.token,
         "refresh_token": credentials.refresh_token,
@@ -122,9 +154,9 @@ def exchange_code_for_tokens(code: str) -> dict:
         "client_id": client_id,
         "client_secret": client_secret,
         "scopes": list(credentials.scopes) if credentials.scopes else SCOPES,
+        "expiry": _expiry_to_iso(credentials.expiry),
     }
-    with open(TOKENS_PATH, "w") as f:
-        json.dump(tokens_data, f, indent=2)
+    _write_tokens_file(tokens_data)
     logger.info("Tokens salvos com escopos: %s", tokens_data.get("scopes"))
 
     # Obter email do usuário
@@ -137,12 +169,26 @@ def exchange_code_for_tokens(code: str) -> dict:
 
 
 def get_credentials() -> Optional[Credentials]:
-    """Carrega credenciais salvas e retorna se válidas."""
+    """
+    Carrega credenciais salvas, renova o access token quando expirado e persiste.
+
+    Sem o campo `expiry` no JSON (versões antigas do app), a biblioteca google-auth
+    considera `expired == False` para sempre e o refresh nunca rodava — após ~1h a
+    API do Gmail falhava até o Google renovar por outros meios ou dar timeout.
+    """
     if not TOKENS_PATH.exists():
         return None
 
-    with open(TOKENS_PATH) as f:
-        tokens = json.load(f)
+    try:
+        with open(TOKENS_PATH) as f:
+            tokens = json.load(f)
+    except (OSError, json.JSONDecodeError) as e:
+        logger.warning("get_credentials: não foi possível ler gmail_tokens.json: %s", e)
+        return None
+
+    expiry_raw = tokens.get("expiry")
+    expiry = _expiry_from_json(expiry_raw) if expiry_raw else None
+    expiry_corrupt = bool(expiry_raw) and expiry is None
 
     creds = Credentials(
         token=tokens.get("token"),
@@ -151,22 +197,40 @@ def get_credentials() -> Optional[Credentials]:
         client_id=tokens.get("client_id"),
         client_secret=tokens.get("client_secret"),
         scopes=tokens.get("scopes", SCOPES),
+        expiry=expiry,
     )
 
-    if creds.expired and creds.refresh_token:
-        logger.info("get_credentials: token expirado, renovando. Escopos armazenados=%s", tokens.get("scopes"))
-        creds.refresh(Request())
+    # Arquivos legados sem `expiry`: forçar um refresh para gravar expiração e obter token válido.
+    must_refresh = bool(creds.refresh_token) and (
+        creds.expired or not expiry_raw or expiry_corrupt
+    )
+    if must_refresh:
+        reason = "expirado" if creds.expired else "sem expiry confiável no arquivo"
+        logger.info(
+            "get_credentials: renovando token (%s). Escopos armazenados=%s",
+            reason,
+            tokens.get("scopes"),
+        )
+        try:
+            creds.refresh(Request())
+        except RefreshError as e:
+            logger.warning("get_credentials: refresh falhou (reconecte o Gmail): %s", e)
+            return None
         logger.info("get_credentials: após refresh, escopos=%s", creds.scopes)
-        # Atualizar token no arquivo
         tokens["token"] = creds.token
-        with open(TOKENS_PATH, "w") as f:
-            json.dump(tokens, f, indent=2)
+        exp_iso = _expiry_to_iso(creds.expiry)
+        if exp_iso:
+            tokens["expiry"] = exp_iso
+        _write_tokens_file(tokens)
+
+    if not creds.token or not creds.valid:
+        return None
 
     return creds
 
 
 def is_authenticated() -> bool:
-    """Verifica se há credenciais válidas."""
+    """Verifica se há credenciais válidas (access token válido ou renovado)."""
     return get_credentials() is not None
 
 

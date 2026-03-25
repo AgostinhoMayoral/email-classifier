@@ -1,29 +1,17 @@
 """
-Serviço do job diário de classificação e envio de emails.
+Fachada do job diário — reexporta o caso de uso com dependências resolvidas pela composição.
 """
+
+from __future__ import annotations
 
 from datetime import datetime
 from typing import Optional
 
 from sqlalchemy.orm import Session
 
-import os
-from app.services import gmail_service
-from app.services.processor import process_email
-from app.repositories import email_repository
-from app.models import EmailStatus
-from app.timezone_utils import resolve_gmail_date_range_sp
-
-
-def _parse_gmail_date(date_str: Optional[str]) -> Optional[datetime]:
-    """Converte string de data do Gmail para datetime."""
-    if not date_str:
-        return None
-    try:
-        from email.utils import parsedate_to_datetime
-        return parsedate_to_datetime(date_str)
-    except Exception:
-        return None
+from app.application.use_cases.daily_email_job import execute_daily_email_job
+from app.composition import get_email_processing_application_service, get_gmail_gateway
+from app.infrastructure.adapters.sqlalchemy_email_repository import SqlAlchemyEmailRepository
 
 
 def run_daily_job(
@@ -33,116 +21,16 @@ def run_daily_job(
     only_productive: bool = False,
     max_emails: int = 100,
 ) -> dict:
-    """
-    Executa o job diário:
-    1. Busca emails do Gmail no período (padrão: apenas o dia atual em America/Sao_Paulo)
-    2. Classifica os não classificados
-    3. Envia respostas para os selecionados (evita duplicados)
-    """
-    if not gmail_service.is_authenticated():
-        return {"success": False, "error": "Gmail não autenticado"}
+    return execute_daily_email_job(
+        db,
+        get_gmail_gateway(),
+        SqlAlchemyEmailRepository(db),
+        get_email_processing_application_service(),
+        date_from=date_from,
+        date_to=date_to,
+        only_productive=only_productive,
+        max_emails=max_emails,
+    )
 
-    user_info = gmail_service.get_user_info()
-    account = (user_info.get("email") or "").strip().lower() if user_info else None
 
-    range_start, range_end_excl = resolve_gmail_date_range_sp(date_from, date_to)
-
-    # Query Gmail: after = primeiro dia SP (inclusivo), before = exclusivo
-    after_str = range_start.strftime("%Y/%m/%d")
-    before_str = range_end_excl.strftime("%Y/%m/%d")
-    query = f"after:{after_str} before:{before_str}"
-    sent_ids = email_repository.get_all_sent_gmail_ids(db)
-    messages = gmail_service.list_messages(max_results=max_emails, query=query, exclude_ids=sent_ids)
-
-    classified_count = 0
-    sent_count = 0
-    skipped_count = 0
-    errors = []
-
-    for msg in messages:
-        gmail_id = msg["id"]
-        thread_id = msg.get("threadId")
-        subject = msg.get("subject", "")
-        sender = msg.get("from", "")
-        snippet = msg.get("snippet", "")
-        date_str = msg.get("date", "")
-        internal_date = msg.get("internalDate")
-
-        received_at = None
-        if internal_date:
-            received_at = datetime.utcfromtimestamp(int(internal_date) / 1000)
-        else:
-            received_at = _parse_gmail_date(date_str)
-
-        # Criar ou obter registro
-        record = email_repository.get_or_create_email_record(
-            db, gmail_id, thread_id, subject, sender, snippet, received_at,
-            gmail_account_email=account,
-        )
-
-        # Se já enviado, pular
-        if record.status == EmailStatus.SENT:
-            skipped_count += 1
-            continue
-
-        # Classificar se necessário
-        if not record.classification:
-            try:
-                content = gmail_service.get_message_content(gmail_id)
-                recipient = gmail_service.extract_display_name_from_header(sender)
-                user_info = gmail_service.get_user_info()
-                sender_name = (user_info.get("name") or "").strip() if user_info else os.getenv("USER_NAME", "").strip() or None
-                result = process_email(
-                    content,
-                    recipient_name=recipient or None,
-                    sender_name=sender_name or None,
-                )
-                email_repository.save_classification(
-                    db,
-                    record.id,
-                    result["category"],
-                    result["confidence"],
-                    result["suggested_response"],
-                    result.get("processed_text"),
-                )
-                record.status = EmailStatus.CLASSIFIED
-                record.updated_at = datetime.utcnow()
-                db.commit()
-                classified_count += 1
-            except Exception as e:
-                errors.append({"gmail_id": gmail_id, "error": str(e)})
-                continue
-
-        # Verificar se deve enviar (only_productive = só produtivos)
-        if only_productive and record.classification.category != "Produtivo":
-            skipped_count += 1
-            continue
-
-        # Enviar
-        to_email = gmail_service._extract_email_from_header(sender)
-        if not to_email:
-            errors.append({"gmail_id": gmail_id, "error": "Email do destinatário não encontrado"})
-            continue
-
-        try:
-            gmail_service.send_email(
-                to_email=to_email,
-                subject=f"Re: {subject}" if not subject.startswith("Re:") else subject,
-                body=record.classification.suggested_response,
-                thread_id=thread_id,
-            )
-            email_repository.mark_as_sent(db, record.id)
-            email_repository.add_log(db, record.id, "sent", "Resposta enviada com sucesso")
-            sent_count += 1
-        except Exception as e:
-            email_repository.mark_as_failed(db, record.id)
-            email_repository.add_log(db, record.id, "failed", str(e))
-            errors.append({"gmail_id": gmail_id, "error": str(e)})
-
-    return {
-        "success": True,
-        "classified": classified_count,
-        "sent": sent_count,
-        "skipped": skipped_count,
-        "errors": errors,
-    }
+__all__ = ["run_daily_job"]
