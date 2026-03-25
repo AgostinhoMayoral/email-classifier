@@ -114,7 +114,7 @@ status:
 	@(curl -s -o /dev/null -w "  API (8000): %{http_code}\n" http://localhost:8000/docs 2>/dev/null) || echo "  API (8000): offline"
 	@(curl -s -o /dev/null -w "  Frontend (3000): %{http_code}\n" http://localhost:3000 2>/dev/null) || echo "  Frontend (3000): offline"
 
-# Testes (usa SQLite em memória)
+# Testes (SQLite em memória; não espelha produção)
 test:
 	@echo "$(YELLOW)Executando testes...$(NC)"
 	cd backend && USE_SQLITE=1 DISABLE_JOB_SCHEDULER=1 $(BACKEND_PY) -m pytest tests/ -v

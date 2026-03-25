@@ -87,8 +87,24 @@ def _ensure_email_records_gmail_account_column():
         logger.warning("Não foi possível garantir coluna gmail_account_email: %s", e)
 
 
+def _run_alembic_upgrade_head():
+    """Aplica revisões Alembic (PostgreSQL apenas). Testes em SQLite não usam Alembic."""
+    from pathlib import Path
+
+    from alembic import command
+    from alembic.config import Config
+
+    backend_dir = Path(__file__).resolve().parent.parent
+    cfg = Config(str(backend_dir / "alembic.ini"))
+    command.upgrade(cfg, "head")
+    logger.info("Alembic: revisões aplicadas (head).")
+
+
 def init_db():
-    """Cria todas as tabelas no banco."""
+    """Cria tabelas em falta e aplica migrações versionadas (Alembic em PostgreSQL)."""
     from app.models import EmailRecord, EmailClassification, EmailLog, JobConfig  # noqa: F401
+
     Base.metadata.create_all(bind=engine)
     _ensure_email_records_gmail_account_column()
+    if engine.dialect.name != "sqlite":
+        _run_alembic_upgrade_head()

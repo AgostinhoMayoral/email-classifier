@@ -5,7 +5,7 @@ import os
 
 import pytest
 
-# Garante SQLite e scheduler desabilitado antes de importar app
+# Testes: SQLite em memória (rápido); produção/dev real usam PostgreSQL + Alembic.
 os.environ.setdefault("USE_SQLITE", "1")
 os.environ.setdefault("DISABLE_JOB_SCHEDULER", "1")
 

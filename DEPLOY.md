@@ -55,6 +55,18 @@ postgresql://postgres.[PROJECT_REF]:[SUA_SENHA]@aws-0-sa-east-1.pooler.supabase.
 
 Guarde essa URL – você usará como `DATABASE_URL` no Render.
 
+### 1.4 Schema do banco (dev = prod)
+
+Em cada **subida do backend** (Render ou `uvicorn` local com PostgreSQL), o app executa:
+
+1. `create_all` — cria tabelas que ainda não existem  
+2. Garantias legadas de colunas (ex.: `gmail_account_email` em bases antigas)  
+3. **Alembic `upgrade head`** — aplica revisões em `backend/alembic/versions/`
+
+Assim produção passa a receber automaticamente novas revisões Alembic depois do deploy. Para desenvolvimento com o mesmo comportamento, use PostgreSQL local (`docker compose up -d`) e **não** use `USE_SQLITE=1` no dia a dia (SQLite fica só para `pytest`).
+
+Nova alteração de schema: no diretório `backend/`, rode `alembic revision -m "descrição"`, edite o arquivo gerado em `alembic/versions/` e faça deploy; o startup aplica a revisão.
+
 ---
 
 ## 2. Google Cloud – Gmail OAuth

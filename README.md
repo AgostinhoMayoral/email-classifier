@@ -77,7 +77,7 @@ docker-compose up -d
 
 Isso sobe o PostgreSQL em `localhost:5432`. Ou use um banco existente e configure `DATABASE_URL` no `.env`.
 
-Para desenvolvimento sem PostgreSQL, use `USE_SQLITE=1` (dados em memória).
+**Paridade com produção:** desenvolvimento local deve usar **PostgreSQL** (docker-compose ou instância própria). O mesmo fluxo de schema da produção roda no startup: `create_all` + colunas legadas garantidas + **Alembic** até `head`. SQLite em memória existe **somente nos testes** (`pytest` define `USE_SQLITE=1`).
 
 ### 1. Backend (Python)
 
@@ -94,7 +94,7 @@ O backend estará em `http://localhost:8000`
 **Variáveis de ambiente** (veja `backend/.env.example`):
 - `DATABASE_URL`: Conexão PostgreSQL (padrão: `postgresql://postgres:postgres@localhost:5432/email_classifier`)
 - `HF_TOKEN` ou `HUGGINGFACE_TOKEN`: Token Hugging Face para IA
-- `USE_SQLITE=1`: Usa SQLite em memória (sem PostgreSQL)
+- `USE_SQLITE=1`: só para testes automatizados; não use para desenvolvimento se quiser o mesmo schema que produção
 
 ### 2. Frontend (Next.js)
 

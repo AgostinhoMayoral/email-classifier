@@ -10,4 +10,5 @@ google-auth-oauthlib==1.2.0
 google-api-python-client==2.116.0
 sqlalchemy>=2.0.36
 psycopg[binary]>=3.2,<4
+alembic>=1.14,<2
 apscheduler==3.10.4
