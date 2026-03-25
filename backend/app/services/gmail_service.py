@@ -226,7 +226,8 @@ def list_messages_paginated(
     Se exclude_ids for informado, filtra mensagens já respondidas (não aparecem na lista).
 
     Returns:
-        (messages, total) - lista de mensagens da página e total estimado
+        (messages, total) - lista da página; total é exato se a listagem do Gmail
+        terminou nesta requisição, caso contrário é limite inferior vs. resultSizeEstimate.
     """
     creds = get_credentials()
     if not creds:
@@ -248,6 +249,7 @@ def list_messages_paginated(
     all_ids_filtered: list[dict] = []
     next_token: Optional[str] = None
     total_estimate = 0
+    gmail_list_exhausted = False
 
     while len(all_ids_filtered) < needed_count and len(all_ids) < MAX_MESSAGES_FETCH:
         list_params: dict = {
@@ -274,10 +276,16 @@ def list_messages_paginated(
                 all_ids_filtered.append(m)
 
         next_token = results.get("nextPageToken")
-        if not next_token or not batch:
+        if not batch or not next_token:
+            gmail_list_exhausted = True
             break
 
-    total = max(total_estimate, len(all_ids_filtered))
+    # resultSizeEstimate do Gmail não desconta exclude_ids; quando não há mais páginas,
+    # o total correto é só as mensagens que passaram pelo filtro (ex.: já respondidas).
+    if gmail_list_exhausted:
+        total = len(all_ids_filtered)
+    else:
+        total = max(total_estimate, len(all_ids_filtered))
 
     # 2. Pegar o slice de IDs para a página atual (apenas não respondidos)
     start = (page - 1) * per_page
