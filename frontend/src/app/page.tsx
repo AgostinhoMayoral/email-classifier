@@ -55,8 +55,8 @@ const APP_TIMEZONE = 'America/Sao_Paulo';
 function getCurrentMonthRangeYmdSp(): { from: string; to: string } {
   const ymd = new Date().toLocaleDateString('en-CA', { timeZone: APP_TIMEZONE });
   const [yStr, mStr] = ymd.split('-');
-  const y = Number(yStr, 10);
-  const m = Number(mStr, 10);
+  const y = parseInt(yStr, 10);
+  const m = parseInt(mStr, 10);
   const from = `${yStr}-${mStr}-01`;
   const lastDay = new Date(y, m, 0).getDate();
   const to = `${yStr}-${mStr}-${String(lastDay).padStart(2, '0')}`;
