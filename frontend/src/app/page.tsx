@@ -8,7 +8,7 @@ interface ClassificationResult {
   confidence: number;
   suggested_response: string;
   processed_text?: string;
-  ai_used?: boolean; // true = gerado pela IA, false = template de fallback
+  ai_used?: boolean; // true = gerado pela IA, false = template de fallback.
 }
 
 interface GmailMessage {
