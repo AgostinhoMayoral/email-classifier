@@ -8,7 +8,7 @@ interface ClassificationResult {
   confidence: number;
   suggested_response: string;
   processed_text?: string;
-  ai_used?: boolean; // true = gerado pela IA, false = template de fallback
+  ai_used?: boolean; // true = gerado pela IA, false = template de fallback.
 }
 
 interface GmailMessage {
@@ -52,7 +52,9 @@ const APP_TIMEZONE = 'America/Sao_Paulo';
 
 /** Primeiro e último dia do mês civil atual em SP (YYYY-MM-DD), alinhado ao backend. */
 function getCurrentMonthRangeYmdSp(): { from: string; to: string } {
-  const ymd = new Date().toLocaleDateString('en-CA', { timeZone: APP_TIMEZONE });
+  const ymd = new Date().toLocaleDateString('en-CA', {
+    timeZone: APP_TIMEZONE,
+  });
   const [yStr, mStr] = ymd.split('-');
   const y = parseInt(yStr, 10);
   const m = parseInt(mStr, 10);
@@ -62,10 +64,11 @@ function getCurrentMonthRangeYmdSp(): { from: string; to: string } {
   return { from, to };
 }
 
-function formatDateTimePtBrSP(isoOrMs: string | number | null | undefined): string {
+function formatDateTimePtBrSP(
+  isoOrMs: string | number | null | undefined,
+): string {
   if (isoOrMs == null || isoOrMs === '') return '';
-  const d =
-    typeof isoOrMs === 'number' ? new Date(isoOrMs) : new Date(isoOrMs);
+  const d = typeof isoOrMs === 'number' ? new Date(isoOrMs) : new Date(isoOrMs);
   if (Number.isNaN(d.getTime()))
     return typeof isoOrMs === 'string' ? isoOrMs : '';
   return d.toLocaleString('pt-BR', {
@@ -83,7 +86,8 @@ function formatGmailRowDate(msg: GmailMessage): string {
     return formatDateTimePtBrSP(Number(msg.internalDate));
   if (msg.date) {
     const parsed = new Date(msg.date);
-    if (!Number.isNaN(parsed.getTime())) return formatDateTimePtBrSP(parsed.getTime());
+    if (!Number.isNaN(parsed.getTime()))
+      return formatDateTimePtBrSP(parsed.getTime());
   }
   return msg.date || '';
 }
@@ -325,7 +329,8 @@ export default function Home() {
   }, [gmailAuth, activeTab, fetchEmails]);
 
   useEffect(() => {
-    if (gmailAuth && activeTab === 'gmail' && gmailSubTab === 'sent') fetchSentEmails();
+    if (gmailAuth && activeTab === 'gmail' && gmailSubTab === 'sent')
+      fetchSentEmails();
   }, [gmailAuth, activeTab, gmailSubTab, fetchSentEmails]);
 
   const handleClassifyGmailEmail = async (messageId: string) => {
@@ -1373,7 +1378,9 @@ export default function Home() {
                                           className='text-xs text-slate-500 shrink-0'
                                           title='Horário em America/Sao_Paulo'
                                         >
-                                          {formatDateTimePtBrSP(rec.received_at)}
+                                          {formatDateTimePtBrSP(
+                                            rec.received_at,
+                                          )}
                                         </span>
                                       </div>
                                       {expandedSentId === rec.id &&
